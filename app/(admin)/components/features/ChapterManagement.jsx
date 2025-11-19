@@ -20,11 +20,14 @@ import {
   FaExclamationTriangle,
   FaClipboardList,
   FaFilter,
+  FaLock,
 } from "react-icons/fa";
 import { ToastContainer, useToast } from "../ui/Toast";
 import api from "@/lib/api";
+import { usePermissions, getPermissionMessage } from "../../hooks/usePermissions";
 
 const ChaptersManagement = () => {
+  const { canCreate, canEdit, canDelete, canReorder, role } = usePermissions();
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editingChapter, setEditingChapter] = useState(null);
@@ -34,6 +37,7 @@ const ChaptersManagement = () => {
   const [exams, setExams] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [units, setUnits] = useState([]);
+  const [filterUnits, setFilterUnits] = useState([]); // Separate units for filter section
   const [error, setError] = useState(null);
   const [formData, setFormData] = useState({
     examId: "",
@@ -43,7 +47,14 @@ const ChaptersManagement = () => {
     orderNumber: "",
   });
   const [additionalChapters, setAdditionalChapters] = useState([
-    { id: Date.now(), name: "", orderNumber: 1 },
+    {
+      id: Date.now(),
+      name: "",
+      orderNumber: 1,
+      weightage: 0,
+      time: 0,
+      questions: 0,
+    },
   ]);
   const [nextOrderNumber, setNextOrderNumber] = useState(1);
   const [editFormData, setEditFormData] = useState({
@@ -52,6 +63,9 @@ const ChaptersManagement = () => {
     unitId: "",
     name: "",
     orderNumber: "",
+    weightage: "",
+    time: "",
+    questions: "",
   });
   const [formError, setFormError] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -68,7 +82,8 @@ const ChaptersManagement = () => {
     try {
       setIsDataLoading(true);
       setError(null);
-      const response = await api.get("/chapter");
+      // Fetch all chapters (active and inactive) for admin management
+      const response = await api.get("/chapter?status=all&limit=10000");
 
       if (response.data.success) {
         setChapters(response.data.data || []);
@@ -90,10 +105,11 @@ const ChaptersManagement = () => {
   // Fetch exams from API using Axios
   const fetchExams = async () => {
     try {
-      const response = await api.get("/exam");
+      // Fetch all exams (active and inactive) for dropdown
+      const response = await api.get("/exam?status=all");
 
       if (response.data.success) {
-        setExams(response.data.data);
+        setExams(response.data.data || []);
       } else {
         console.error("Failed to fetch exams:", response.data.message);
       }
@@ -105,10 +121,11 @@ const ChaptersManagement = () => {
   // Fetch subjects from API using Axios
   const fetchSubjects = async () => {
     try {
-      const response = await api.get("/subject");
+      // Fetch all subjects (active and inactive) for dropdown
+      const response = await api.get("/subject?status=all");
 
       if (response.data.success) {
-        setSubjects(response.data.data);
+        setSubjects(response.data.data || []);
       } else {
         console.error("Failed to fetch subjects:", response.data.message);
       }
@@ -117,18 +134,27 @@ const ChaptersManagement = () => {
     }
   };
 
-  // Fetch units from API using Axios
-  const fetchUnits = async () => {
+  // Fetch units from API based on exam and subject
+  const fetchUnits = async (examId, subjectId) => {
+    if (!examId || !subjectId) {
+      setUnits([]);
+      return;
+    }
     try {
-      const response = await api.get("/unit");
+      // Fetch units for the selected exam and subject
+      const response = await api.get(
+        `/unit?examId=${examId}&subjectId=${subjectId}&status=all&limit=1000`
+      );
 
       if (response.data.success) {
-        setUnits(response.data.data);
+        setUnits(response.data.data || []);
       } else {
         console.error("Failed to fetch units:", response.data.message);
+        setUnits([]);
       }
     } catch (error) {
       console.error("Error fetching units:", error);
+      setUnits([]);
     }
   };
 
@@ -137,34 +163,41 @@ const ChaptersManagement = () => {
     fetchChapters();
     fetchExams();
     fetchSubjects();
-    fetchUnits();
+    // Don't fetch units on mount - will fetch when subject is selected
   }, [fetchChapters]);
+
+  // Auto-clear error after 5 seconds with cleanup
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // Filter subjects based on selected exam
   const filteredSubjects = useMemo(() => {
-    if (formData.examId && subjects) {
-      const filtered = subjects.filter(
-        (subject) =>
-          subject.examId._id === formData.examId ||
-          subject.examId === formData.examId
-      );
-      return filtered;
+    if (!formData.examId) {
+      // If no exam is selected, show all subjects
+      return subjects || [];
     }
-    return subjects || [];
+    if (!subjects || subjects.length === 0) {
+      return [];
+    }
+    // Filter subjects by selected exam (handle both populated and non-populated examId)
+    return subjects.filter(
+      (subject) =>
+        subject.examId?._id === formData.examId ||
+        subject.examId === formData.examId
+    );
   }, [formData.examId, subjects]);
 
-  // Filter units based on selected subject
+  // Units are already filtered by API call, so return all units
   const filteredUnits = useMemo(() => {
-    if (formData.subjectId && units) {
-      const filtered = units.filter(
-        (unit) =>
-          unit.subjectId._id === formData.subjectId ||
-          unit.subjectId === formData.subjectId
-      );
-      return filtered;
-    }
+    // Units are already filtered by fetchUnits(examId, subjectId), so just return them
     return units || [];
-  }, [formData.subjectId, units]);
+  }, [units]);
 
   // Filter subjects based on selected exam for filters
   const filteredFilterSubjects = useMemo(() => {
@@ -175,15 +208,69 @@ const ChaptersManagement = () => {
     );
   }, [subjects, filterExam]);
 
+  // Filter subjects for edit form based on selected exam
+  const filteredEditSubjects = useMemo(() => {
+    if (!editFormData.examId) {
+      // If no exam is selected in edit form, show all subjects
+      return subjects || [];
+    }
+    if (!subjects || subjects.length === 0) {
+      return [];
+    }
+    // Filter subjects by selected exam in edit form (handle both populated and non-populated examId)
+    return subjects.filter(
+      (subject) =>
+        subject.examId?._id === editFormData.examId ||
+        subject.examId === editFormData.examId
+    );
+  }, [editFormData.examId, subjects]);
+
+  // Units for edit form are already filtered by API call, so return all units
+  const filteredEditUnits = useMemo(() => {
+    // Units are already filtered by fetchUnits(examId, subjectId), so just return them
+    return units || [];
+  }, [units]);
+
+  // Fetch units for filter section
+  const fetchUnitsForFilter = useCallback(async (examId, subjectId) => {
+    if (!examId || !subjectId) {
+      setFilterUnits([]);
+      return;
+    }
+    try {
+      const response = await api.get(
+        `/unit?examId=${examId}&subjectId=${subjectId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        setFilterUnits(response.data.data || []);
+      } else {
+        console.error("Failed to fetch filter units:", response.data.message);
+        setFilterUnits([]);
+      }
+    } catch (error) {
+      console.error("Error fetching filter units:", error);
+      setFilterUnits([]);
+    }
+  }, []);
+
+  // Fetch units for filter section when filterSubject changes
+  useEffect(() => {
+    if (filterSubject && filterExam) {
+      fetchUnitsForFilter(filterExam, filterSubject);
+    } else {
+      setFilterUnits([]);
+    }
+  }, [filterSubject, filterExam, fetchUnitsForFilter]);
+
   // Filter units based on selected subject for filters
   const filteredFilterUnits = useMemo(() => {
     if (!filterSubject) return [];
-    return units.filter(
+    return filterUnits.filter(
       (unit) =>
         unit.subjectId?._id === filterSubject ||
         unit.subjectId === filterSubject
     );
-  }, [units, filterSubject]);
+  }, [filterUnits, filterSubject]);
 
   // Filter chapters based on filters
   const filteredChapters = useMemo(() => {
@@ -223,9 +310,10 @@ const ChaptersManagement = () => {
 
   // Get next order number for chapters in a unit
   const getNextOrderNumber = useCallback(async (unitId) => {
+    if (!unitId) return 1;
     try {
-      const response = await api.get(`/chapter?unitId=${unitId}`);
-      if (response.data.success && response.data.data) {
+      const response = await api.get(`/chapter?unitId=${unitId}&status=all&limit=1000`);
+      if (response.data.success && response.data.data && response.data.data.length > 0) {
         const maxOrder = Math.max(
           ...response.data.data.map((chapter) => chapter.orderNumber || 0),
           0
@@ -241,27 +329,72 @@ const ChaptersManagement = () => {
 
   // Effect to get next order number when unit is selected
   useEffect(() => {
-    if (formData.unitId && showAddForm && additionalChapters.length === 0) {
+    if (formData.unitId && showAddForm) {
       getNextOrderNumber(formData.unitId).then((nextOrder) => {
         setNextOrderNumber(nextOrder);
-        setAdditionalChapters([
-          { id: Date.now(), name: "", orderNumber: nextOrder },
-        ]);
+        
+        // Always update chapters - create first one if none exist, or update existing ones
+        setAdditionalChapters((prev) => {
+          if (prev.length === 0) {
+            // Create first chapter with calculated order number
+            return [
+              {
+                id: Date.now(),
+                name: "",
+                orderNumber: nextOrder,
+                weightage: 0,
+                time: 0,
+                questions: 0,
+              },
+            ];
+          } else {
+            // Update order numbers for existing chapters
+            return prev.map((chapter, index) => ({
+              ...chapter,
+              orderNumber: nextOrder + index,
+            }));
+          }
+        });
       });
+    } else if (!formData.unitId && showAddForm) {
+      // Clear chapters when unit is cleared
+      setAdditionalChapters([]);
+      setNextOrderNumber(1);
     }
   }, [
     formData.unitId,
     showAddForm,
-    additionalChapters.length,
     getNextOrderNumber,
   ]);
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => {
+      const newData = { ...prev, [name]: value };
+      
+      // Reset subject when exam changes
+      if (name === "examId" && value !== prev.examId) {
+        newData.subjectId = "";
+        newData.unitId = "";
+        setUnits([]); // Clear units when exam changes
+      }
+      
+      // Reset unit when subject changes and fetch units for the selected exam and subject
+      if (name === "subjectId" && value !== prev.subjectId) {
+        newData.unitId = "";
+        // Fetch units for the selected exam and subject
+        if (newData.examId && value) {
+          fetchUnits(newData.examId, value);
+        } else {
+          setUnits([]);
+        }
+      }
+      
+      // Note: Chapter clearing and order number calculation is handled by useEffect
+      // when unitId changes
+      
+      return newData;
+    });
     setFormError(null);
   };
 
@@ -273,9 +406,19 @@ const ChaptersManagement = () => {
       name: "",
       orderNumber: "",
     });
-    setAdditionalChapters([]);
+    setAdditionalChapters([
+      {
+        id: Date.now(),
+        name: "",
+        orderNumber: 1,
+        weightage: 0,
+        time: 0,
+        questions: 0,
+      },
+    ]);
     setNextOrderNumber(1);
     setFormError(null);
+    setUnits([]); // Clear units when form is cancelled
     setShowAddForm(false);
   };
 
@@ -288,16 +431,33 @@ const ChaptersManagement = () => {
       name: "",
       orderNumber: "",
     });
-    setAdditionalChapters([]);
+    setAdditionalChapters([
+      {
+        id: Date.now(),
+        name: "",
+        orderNumber: 1,
+        weightage: 0,
+        time: 0,
+        questions: 0,
+      },
+    ]);
     setNextOrderNumber(1);
     setFormError(null);
+    setUnits([]); // Clear units when opening new form
   };
 
   const handleAddMoreChapters = () => {
     const nextOrder = nextOrderNumber + additionalChapters.length;
     setAdditionalChapters((prev) => [
       ...prev,
-      { id: Date.now(), name: "", orderNumber: nextOrder },
+      {
+        id: Date.now(),
+        name: "",
+        orderNumber: nextOrder,
+        weightage: 0,
+        time: 0,
+        questions: 0,
+      },
     ]);
   };
 
@@ -319,6 +479,12 @@ const ChaptersManagement = () => {
 
   const handleAddChapter = async (e) => {
     e.preventDefault();
+
+    // Check permissions
+    if (!canCreate) {
+      showError(getPermissionMessage("create", role));
+      return;
+    }
 
     // Validate that we have the required fields and at least one chapter
     if (!formData.examId || !formData.subjectId || !formData.unitId) {
@@ -347,6 +513,9 @@ const ChaptersManagement = () => {
         subjectId: formData.subjectId,
         unitId: formData.unitId,
         orderNumber: chapter.orderNumber || nextOrderNumber + index,
+        weightage: chapter.weightage || 0,
+        time: chapter.time || 0,
+        questions: chapter.questions || 0,
       }));
 
       // Create chapters one by one
@@ -393,24 +562,61 @@ const ChaptersManagement = () => {
   };
 
   const handleEditChapter = (chapterToEdit) => {
+    // Check permissions
+    if (!canEdit) {
+      showError(getPermissionMessage("edit", role));
+      return;
+    }
+    const examId = chapterToEdit.examId?._id || chapterToEdit.examId;
+    const subjectId = chapterToEdit.subjectId?._id || chapterToEdit.subjectId;
+    const unitId = chapterToEdit.unitId?._id || chapterToEdit.unitId;
+    
     setEditingChapter(chapterToEdit);
     setEditFormData({
       name: chapterToEdit.name,
-      examId: chapterToEdit.examId._id || chapterToEdit.examId,
-      subjectId: chapterToEdit.subjectId._id || chapterToEdit.subjectId,
-      unitId: chapterToEdit.unitId._id || chapterToEdit.unitId,
-      orderNumber: chapterToEdit.orderNumber,
+      examId: examId,
+      subjectId: subjectId,
+      unitId: unitId,
+      orderNumber: chapterToEdit.orderNumber?.toString() || "",
+      weightage: chapterToEdit.weightage || 0,
+      time: chapterToEdit.time || 0,
+      questions: chapterToEdit.questions || 0,
     });
+    
+    // Fetch units for the selected exam and subject when editing
+    if (examId && subjectId) {
+      fetchUnits(examId, subjectId);
+    }
+    
     setShowEditForm(true);
     setFormError(null);
   };
 
   const handleEditFormChange = (e) => {
     const { name, value } = e.target;
-    setEditFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setEditFormData((prev) => {
+      const newData = { ...prev, [name]: value };
+      
+      // Reset subject when exam changes
+      if (name === "examId" && value !== prev.examId) {
+        newData.subjectId = "";
+        newData.unitId = "";
+        setUnits([]); // Clear units when exam changes
+      }
+      
+      // Reset unit when subject changes and fetch units for the selected exam and subject
+      if (name === "subjectId" && value !== prev.subjectId) {
+        newData.unitId = "";
+        // Fetch units for the selected exam and subject in edit form
+        if (newData.examId && value) {
+          fetchUnits(newData.examId, value);
+        } else {
+          setUnits([]);
+        }
+      }
+      
+      return newData;
+    });
     setFormError(null);
   };
 
@@ -421,6 +627,9 @@ const ChaptersManagement = () => {
       unitId: "",
       name: "",
       orderNumber: "",
+      weightage: "",
+      time: "",
+      questions: "",
     });
     setFormError(null);
     setShowEditForm(false);
@@ -449,9 +658,16 @@ const ChaptersManagement = () => {
         examId: editFormData.examId,
         subjectId: editFormData.subjectId,
         unitId: editFormData.unitId,
-        orderNumber: editFormData.orderNumber
+        orderNumber: editFormData.orderNumber && editFormData.orderNumber.trim()
           ? parseInt(editFormData.orderNumber)
           : undefined,
+        weightage: editFormData.weightage
+          ? parseFloat(editFormData.weightage)
+          : 0,
+        time: editFormData.time ? parseInt(editFormData.time) : 0,
+        questions: editFormData.questions
+          ? parseInt(editFormData.questions)
+          : 0,
       });
 
       if (response.data.success) {
@@ -470,6 +686,9 @@ const ChaptersManagement = () => {
           unitId: "",
           name: "",
           orderNumber: "",
+          weightage: "",
+          time: "",
+          questions: "",
         });
         setShowEditForm(false);
         setEditingChapter(null);
@@ -490,6 +709,11 @@ const ChaptersManagement = () => {
   };
 
   const handleDeleteChapter = async (chapterToDelete) => {
+    // Check permissions
+    if (!canDelete) {
+      showError(getPermissionMessage("delete", role));
+      return;
+    }
     if (
       !window.confirm(
         `Are you sure you want to delete "${chapterToDelete.name}"?`
@@ -572,6 +796,12 @@ const ChaptersManagement = () => {
   };
 
   const handleDragEnd = async (result) => {
+    // Check permissions
+    if (!canReorder) {
+      showError(getPermissionMessage("reorder", role));
+      return;
+    }
+
     if (!result.destination) return;
 
     const sourceIndex = result.source.index;
@@ -581,30 +811,58 @@ const ChaptersManagement = () => {
     if (sourceIndex === destinationIndex) return;
 
     const items = Array.from(chapters);
-    const [reorderedItem] = items.splice(sourceIndex, 1);
-    items.splice(destinationIndex, 0, reorderedItem);
+    const reorderedItem = items[sourceIndex];
+    
+    // Get the unit ID to identify the group
+    const unitId = reorderedItem.unitId?._id || reorderedItem.unitId;
 
-    // Update order numbers based on new position
-    const updatedItems = items.map((item, index) => ({
-      ...item,
+    // Find all chapters in the same group (same unit)
+    const groupChapters = items.filter((chapter) => {
+      const chapterUnitId = chapter.unitId?._id || chapter.unitId;
+      return chapterUnitId === unitId;
+    });
+
+    // Find indices within the group
+    const groupSourceIndex = groupChapters.findIndex(
+      (c) => (c._id || c.id) === (reorderedItem._id || reorderedItem.id)
+    );
+    
+    // Create a reordered group array
+    const reorderedGroup = Array.from(groupChapters);
+    const [movedChapter] = reorderedGroup.splice(groupSourceIndex, 1);
+    
+    // Calculate destination index within the group
+    const groupDestIndex = groupChapters.findIndex((chapter, idx) => {
+      if (idx === groupSourceIndex) return false;
+      const flatIndex = items.findIndex(
+        (c) => (c._id || c.id) === (chapter._id || chapter.id)
+      );
+      return flatIndex >= destinationIndex;
+    });
+    const finalDestIndex = groupDestIndex === -1 ? reorderedGroup.length : groupDestIndex;
+    reorderedGroup.splice(finalDestIndex, 0, movedChapter);
+
+    // Update order numbers only for chapters in this group
+    const updatedGroupChapters = reorderedGroup.map((chapter, index) => ({
+      ...chapter,
       orderNumber: index + 1,
     }));
+
+    // Update the full chapters array, preserving other chapters
+    const updatedItems = items.map((chapter) => {
+      const updatedChapter = updatedGroupChapters.find(
+        (c) => (c._id || c.id) === (chapter._id || chapter.id)
+      );
+      return updatedChapter || chapter;
+    });
 
     // Optimistically update the UI first
     setChapters(updatedItems);
 
     // Update all affected chapters in the database using the reorder endpoint
     try {
-      // Get the unit ID to filter chapters by unit
-      const unitId = reorderedItem.unitId._id || reorderedItem.unitId;
-
-      // Find all chapters that need to be updated (chapters in the same unit)
-      const chaptersToUpdate = updatedItems.filter(
-        (chapter) => (chapter.unitId._id || chapter.unitId) === unitId
-      );
-
       // Prepare chapters data for the reorder endpoint
-      const chaptersData = chaptersToUpdate.map((chapter) => ({
+      const chaptersData = updatedGroupChapters.map((chapter) => ({
         id: chapter._id,
         orderNumber: chapter.orderNumber,
       }));
@@ -616,9 +874,7 @@ const ChaptersManagement = () => {
 
       if (response.data.success) {
         console.log(
-          `✅ Chapter "${reorderedItem.name}" moved to position ${
-            destinationIndex + 1
-          }`
+          `✅ Chapter "${reorderedItem.name}" moved to position ${finalDestIndex + 1}`
         );
       } else {
         throw new Error(response.data.message || "Failed to reorder chapters");
@@ -636,48 +892,56 @@ const ChaptersManagement = () => {
           error.response?.data?.message || error.message
         }`
       );
-
-      // Clear error after 5 seconds
-      setTimeout(() => setError(null), 5000);
     }
   };
 
   return (
     <>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
-      <div className="space-y-6 sm:space-y-8">
+      <div className="space-y-6">
         {/* Page Header */}
-        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-2xl shadow-lg border border-gray-200/50 p-4 sm:p-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="space-y-2">
-              <h1 className="text-xl sm:text-2xl lg:text-2xl font-bold text-gray-900 tracking-tight">
+        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-lg border border-gray-200 p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900 mb-2">
                 Chapters Management
               </h1>
-              <p className="text-gray-600 text-xs">
+              <p className="text-sm text-gray-600">
                 Manage and organize your chapters, create new chapters, and
                 track chapter performance across your educational platform.
               </p>
             </div>
-            <button
-              onClick={handleOpenAddForm}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
-            >
-              <FaPlus className="w-4 h-4" />
-              <span className="text-xs">Add New Chapter</span>
-            </button>
+            {canCreate ? (
+              <button
+                onClick={handleOpenAddForm}
+                className="px-4 py-2 bg-[#0056FF] hover:bg-[#0044CC] text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <FaPlus className="w-4 h-4" />
+                <span>Add New Chapter</span>
+              </button>
+            ) : (
+              <button
+                disabled
+                title={getPermissionMessage("create", role)}
+                className="px-4 py-2 bg-gray-300 text-gray-500 rounded-lg text-sm font-medium cursor-not-allowed flex items-center gap-2"
+              >
+                <FaLock className="w-4 h-4" />
+                <span>Add New Chapter</span>
+              </button>
+            )}
           </div>
         </div>
 
         {/* Add Chapter Form */}
         {showAddForm && (
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200/50 p-3 animate-fadeIn">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             {/* Header */}
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <div className="p-2 bg-blue-100 rounded-lg">
                   <FaPlus className="size-3 text-blue-600" />
                 </div>
-                <h2 className="text-sm font-bold text-gray-900">
+                <h2 className="text-base font-semibold text-gray-900">
                   Add New Chapter
                 </h2>
               </div>
@@ -776,11 +1040,15 @@ const ChaptersManagement = () => {
                     disabled={!formData.subjectId || isFormLoading}
                   >
                     <option value="">-- Select Unit --</option>
-                    {filteredUnits?.map((unit) => (
-                      <option key={unit._id} value={unit._id}>
-                        {unit.name}
-                      </option>
-                    ))}
+                    {filteredUnits && filteredUnits.length > 0 ? (
+                      filteredUnits.map((unit) => (
+                        <option key={unit._id} value={unit._id}>
+                          {unit.name}
+                        </option>
+                      ))
+                    ) : formData.subjectId ? (
+                      <option value="" disabled>Loading units...</option>
+                    ) : null}
                   </select>
                 </div>
               </div>
@@ -806,11 +1074,7 @@ const ChaptersManagement = () => {
                 {additionalChapters.map((chapter, index) => (
                   <div
                     key={chapter.id}
-                    className={`grid gap-2 ${
-                      additionalChapters.length === 1
-                        ? "grid-cols-1 md:grid-cols-2"
-                        : "grid-cols-1 md:grid-cols-3"
-                    }`}
+                    className="grid grid-cols-1 md:grid-cols-5 gap-2"
                   >
                     {/* Chapter Name */}
                     <div className="space-y-2 px-2">
@@ -862,9 +1126,85 @@ const ChaptersManagement = () => {
                       />
                     </div>
 
+                    {/* Weightage (%) */}
+                    <div className="space-y-2 px-2">
+                      <label
+                        htmlFor={`chapter-weightage-${chapter.id}`}
+                        className="block text-xs font-semibold text-gray-700"
+                      >
+                        Weightage (%)
+                      </label>
+                      <input
+                        type="number"
+                        id={`chapter-weightage-${chapter.id}`}
+                        value={chapter.weightage || 0}
+                        onChange={(e) =>
+                          handleChapterChange(
+                            chapter.id,
+                            "weightage",
+                            parseFloat(e.target.value) || 0
+                          )
+                        }
+                        min="0"
+                        step="0.1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 text-sm hover:border-gray-400"
+                        disabled={isFormLoading}
+                      />
+                    </div>
+
+                    {/* Time (min) */}
+                    <div className="space-y-2 px-2">
+                      <label
+                        htmlFor={`chapter-time-${chapter.id}`}
+                        className="block text-xs font-semibold text-gray-700"
+                      >
+                        Time (min)
+                      </label>
+                      <input
+                        type="number"
+                        id={`chapter-time-${chapter.id}`}
+                        value={chapter.time || 0}
+                        onChange={(e) =>
+                          handleChapterChange(
+                            chapter.id,
+                            "time",
+                            parseInt(e.target.value) || 0
+                          )
+                        }
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 text-sm hover:border-gray-400"
+                        disabled={isFormLoading}
+                      />
+                    </div>
+
+                    {/* Questions */}
+                    <div className="space-y-2 px-2">
+                      <label
+                        htmlFor={`chapter-questions-${chapter.id}`}
+                        className="block text-xs font-semibold text-gray-700"
+                      >
+                        Questions
+                      </label>
+                      <input
+                        type="number"
+                        id={`chapter-questions-${chapter.id}`}
+                        value={chapter.questions || 0}
+                        onChange={(e) =>
+                          handleChapterChange(
+                            chapter.id,
+                            "questions",
+                            parseInt(e.target.value) || 0
+                          )
+                        }
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 text-sm hover:border-gray-400"
+                        disabled={isFormLoading}
+                      />
+                    </div>
+
                     {/* Remove Button */}
                     {additionalChapters.length > 1 && (
-                      <div className="space-y-2 px-2 flex items-end">
+                      <div className="space-y-2 px-2 md:col-span-5 flex items-end">
                         <button
                           type="button"
                           onClick={() => handleRemoveChapter(chapter.id)}
@@ -991,6 +1331,67 @@ const ChaptersManagement = () => {
                   />
                 </div>
 
+                {/* Weightage (%) */}
+                <div className="space-y-2 px-2">
+                  <label
+                    htmlFor="editWeightage"
+                    className="block text-sm font-semibold text-gray-700"
+                  >
+                    Weightage (%)
+                  </label>
+                  <input
+                    type="number"
+                    id="editWeightage"
+                    name="weightage"
+                    value={editFormData.weightage}
+                    onChange={handleEditFormChange}
+                    min="0"
+                    step="0.1"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 text-sm hover:border-gray-400"
+                    disabled={isFormLoading}
+                  />
+                </div>
+
+                {/* Time (min) */}
+                <div className="space-y-2 px-2">
+                  <label
+                    htmlFor="editTime"
+                    className="block text-sm font-semibold text-gray-700"
+                  >
+                    Time (min)
+                  </label>
+                  <input
+                    type="number"
+                    id="editTime"
+                    name="time"
+                    value={editFormData.time}
+                    onChange={handleEditFormChange}
+                    min="0"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 text-sm hover:border-gray-400"
+                    disabled={isFormLoading}
+                  />
+                </div>
+
+                {/* Questions */}
+                <div className="space-y-2 px-2">
+                  <label
+                    htmlFor="editQuestions"
+                    className="block text-sm font-semibold text-gray-700"
+                  >
+                    Questions
+                  </label>
+                  <input
+                    type="number"
+                    id="editQuestions"
+                    name="questions"
+                    value={editFormData.questions}
+                    onChange={handleEditFormChange}
+                    min="0"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 text-sm hover:border-gray-400"
+                    disabled={isFormLoading}
+                  />
+                </div>
+
                 {/* Exam Select */}
                 <div className="space-y-2 px-2">
                   <label
@@ -1032,10 +1433,10 @@ const ChaptersManagement = () => {
                     onChange={handleEditFormChange}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 text-sm hover:border-gray-400"
                     required
-                    disabled={isFormLoading}
+                    disabled={!editFormData.examId || isFormLoading}
                   >
                     <option value="">-- Select Subject --</option>
-                    {subjects?.map((subject) => (
+                    {filteredEditSubjects?.map((subject) => (
                       <option key={subject._id} value={subject._id}>
                         {subject.name}
                       </option>
@@ -1058,18 +1459,22 @@ const ChaptersManagement = () => {
                     onChange={handleEditFormChange}
                     className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200 text-sm hover:border-gray-400"
                     required
-                    disabled={isFormLoading}
+                    disabled={!editFormData.subjectId || isFormLoading}
                   >
                     <option value="">-- Select Unit --</option>
-                    {units?.map((unit) => (
-                      <option key={unit._id} value={unit._id}>
-                        {unit.name}
-                      </option>
-                    ))}
+                    {filteredEditUnits && filteredEditUnits.length > 0 ? (
+                      filteredEditUnits.map((unit) => (
+                        <option key={unit._id} value={unit._id}>
+                          {unit.name}
+                        </option>
+                      ))
+                    ) : editFormData.subjectId ? (
+                      <option value="" disabled>Loading units...</option>
+                    ) : null}
                   </select>
                 </div>
-        </div>
-        
+              </div>
+
               {/* Form Actions */}
               <div className="flex flex-col sm:flex-row justify-end gap-2 pt-2 border-t border-gray-200">
                 <button
@@ -1080,7 +1485,7 @@ const ChaptersManagement = () => {
                 >
                   Cancel
                 </button>
-        <button
+                <button
                   type="submit"
                   className="py-2 px-4 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl text-sm font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:scale-105 active:scale-95"
                   disabled={isFormLoading}
@@ -1103,56 +1508,40 @@ const ChaptersManagement = () => {
         )}
 
         {/* Content Area */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200/50 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-base sm:text-lg font-bold text-gray-900">
+                <h2 className="text-xl font-semibold text-gray-900">
                   Chapters List
                 </h2>
-                <p className="text-xs text-gray-600 mt-1">
+                <p className="text-sm text-gray-600 mt-1">
                   Manage your chapters, view details, and perform actions. You
                   can drag to reorder chapters.
                 </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                Last updated: {new Date().toLocaleTimeString()}
               </div>
             </div>
           </div>
 
           {/* Filter Button */}
-          <div className="px-4 py-3 border-b border-gray-200">
+          <div className="px-6 py-3 border-b border-gray-200">
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
             >
               <FaFilter className="w-4 h-4" />
               Filter Chapters
               {activeFilterCount > 0 && (
-                <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-bold">
+                <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-medium">
                   {activeFilterCount}
                 </span>
               )}
-        </button>
-    </div>
-      
+            </button>
+          </div>
+
           {/* Filter Section */}
           {showFilters && (
-            <div className="px-4 py-4 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200 animate-fadeIn">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                 {/* Filter by Exam */}
                 <div className="space-y-2">
@@ -1232,7 +1621,7 @@ const ChaptersManagement = () => {
                     Active Filters:
                   </span>
                   {filterExam && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Exam:{" "}
                       {exams.find((e) => e._id === filterExam)?.name || "N/A"}
                       <button
@@ -1241,14 +1630,14 @@ const ChaptersManagement = () => {
                           setFilterSubject("");
                           setFilterUnit("");
                         }}
-                        className="hover:bg-green-200 rounded-full p-0.5 transition-colors"
+                        className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
                         <FaTimes className="w-3 h-3" />
                       </button>
                     </span>
                   )}
                   {filterSubject && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Subject:{" "}
                       {subjects.find((s) => s._id === filterSubject)?.name ||
                         "N/A"}
@@ -1257,16 +1646,16 @@ const ChaptersManagement = () => {
                           setFilterSubject("");
                           setFilterUnit("");
                         }}
-                        className="hover:bg-purple-200 rounded-full p-0.5 transition-colors"
+                        className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
                         <FaTimes className="w-3 h-3" />
                       </button>
                     </span>
                   )}
                   {filterUnit && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Unit:{" "}
-                      {units.find((u) => u._id === filterUnit)?.name || "N/A"}
+                      {filterUnits.find((u) => u._id === filterUnit)?.name || "N/A"}
                       <button
                         onClick={() => setFilterUnit("")}
                         className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
@@ -1277,7 +1666,7 @@ const ChaptersManagement = () => {
                   )}
                   <button
                     onClick={clearFilters}
-                    className="ml-auto px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full text-xs font-semibold transition-colors"
+                    className="ml-auto px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full text-xs font-medium transition-colors"
                   >
                     Clear All Filters
                   </button>
@@ -1286,7 +1675,7 @@ const ChaptersManagement = () => {
             </div>
           )}
 
-          <div className="p-4">
+          <div className="p-6">
             {isDataLoading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="text-center">
@@ -1317,13 +1706,20 @@ const ChaptersManagement = () => {
                     Clear Filters
                   </button>
                 ) : (
-                  <button
-                    onClick={handleOpenAddForm}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2"
-                  >
-                    <FaPlus className="w-4 h-4" />
-                    Create Your First Chapter
-                  </button>
+                  canCreate ? (
+                    <button
+                      onClick={handleOpenAddForm}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2"
+                    >
+                      <FaPlus className="w-4 h-4" />
+                      Create Your First Chapter
+                    </button>
+                  ) : (
+                    <div className="px-4 py-2 bg-gray-100 text-gray-500 rounded-lg text-sm font-medium flex items-center gap-2">
+                      <FaLock className="w-4 h-4" />
+                      <span>{getPermissionMessage("create", role)}</span>
+                    </div>
+                  )
                 )}
               </div>
             ) : (
@@ -1337,7 +1733,7 @@ const ChaptersManagement = () => {
             )}
           </div>
         </div>
-        </div>  
+      </div>
     </>
   );
 };

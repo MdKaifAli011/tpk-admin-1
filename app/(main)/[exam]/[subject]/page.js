@@ -1,17 +1,16 @@
-"use client";
-import React, { useMemo, useState, useEffect } from "react";
+import React from "react";
+import { notFound } from "next/navigation";
 import MainLayout from "../../layout/MainLayout";
-import { useParams, notFound, useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   FaBook,
   FaGraduationCap,
-  FaUsers,
   FaChartLine,
   FaTrophy,
-  FaChevronRight,
 } from "react-icons/fa";
 import ListItem from "../../components/ListItem";
+import TabsClient from "../../components/TabsClient";
+import NavigationClient from "../../components/NavigationClient";
+import { ERROR_MESSAGES } from "@/constants";
 import {
   fetchExamById,
   fetchSubjectsByExam,
@@ -19,123 +18,107 @@ import {
   fetchUnitsBySubject,
   createSlug,
   findByIdOrSlug,
+  fetchSubjectDetailsById,
 } from "../../lib/api";
+import {
+  getNextSubject,
+  getPreviousSubject,
+} from "../../lib/hierarchicalNavigation";
 
-const TABS = ["Overview", "Discussion Forum", "Practice Test", "Performance"];
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-const SubjectPage = () => {
-  const { exam: examId, subject: subjectSlug } = useParams();
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState(TABS[0]);
-  
-  // Data states
-  const [exam, setExam] = useState(null);
-  const [subject, setSubject] = useState(null);
-  const [units, setUnits] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+const SubjectPage = async ({ params }) => {
+  const { exam: examId, subject: subjectSlug } = await params;
 
-  // Fetch exam, subject, and units
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        
-        // Fetch exam
-        const fetchedExam = await fetchExamById(examId);
-        if (!fetchedExam) {
-          notFound();
-          return;
-        }
-        setExam(fetchedExam);
-        
-        // Fetch subjects for this exam
-        const examIdValue = fetchedExam._id || examId;
-        const fetchedSubjects = await fetchSubjectsByExam(examIdValue);
-        
-        // Find subject by slug
-        const foundSubject = findByIdOrSlug(fetchedSubjects, subjectSlug);
-        if (!foundSubject) {
-          notFound();
-          return;
-        }
-        
-        // Fetch full subject data including content
-        const fullSubjectData = await fetchSubjectById(foundSubject._id);
-        setSubject(fullSubjectData || foundSubject);
-        
-        // Fetch units for this subject
-        const fetchedUnits = await fetchUnitsBySubject(
-          foundSubject._id,
-          examIdValue
-        );
-        setUnits(fetchedUnits);
-      } catch (err) {
-        console.error("Error loading subject data:", err);
-        setError("Failed to load subject data. Please try again later.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    
-    if (examId && subjectSlug) {
-      loadData();
-    }
-  }, [examId, subjectSlug]);
-
-  if (isLoading) {
-    return (
-      <MainLayout>
-        <div className="space-y-6">
-          <div className="animate-pulse">
-            <div className="h-32 bg-gray-200 rounded-xl"></div>
-            <div className="h-64 bg-gray-200 rounded-xl"></div>
-          </div>
-        </div>
-      </MainLayout>
-    );
+  // Fetch exam
+  const fetchedExam = await fetchExamById(examId);
+  if (!fetchedExam) {
+    notFound();
   }
 
-  if (error || !exam || !subject) {
-    return (
-      <MainLayout>
-        <div className="space-y-6">
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            {error || "Subject not found"}
-          </div>
-        </div>
-      </MainLayout>
-    );
+  const examIdValue = fetchedExam._id || examId;
+
+  // Fetch subjects for this exam
+  const fetchedSubjects = await fetchSubjectsByExam(examIdValue);
+
+  // Find subject by slug
+  const foundSubject = findByIdOrSlug(fetchedSubjects, subjectSlug);
+  if (!foundSubject) {
+    notFound();
   }
 
-  const examSlug = createSlug(exam.name);
-  const subjectSlugValue = createSlug(subject.name);
+  // Fetch full subject data and details in parallel
+  const [fullSubjectData, subjectDetails, fetchedUnits] = await Promise.all([
+    fetchSubjectById(foundSubject._id),
+    fetchSubjectDetailsById(foundSubject._id).catch(() => ({
+      content: "",
+      title: "",
+      metaDescription: "",
+      keywords: "",
+    })),
+    fetchUnitsBySubject(foundSubject._id, examIdValue),
+  ]);
+
+  const subject = fullSubjectData || foundSubject;
+
+  // Find current subject index for navigation
+  const subjectIndex = fetchedSubjects.findIndex(
+    (s) =>
+      s._id === foundSubject._id ||
+      createSlug(s.name) === subjectSlug ||
+      s.name?.toLowerCase() === subjectSlug.toLowerCase()
+  );
+
+  const examSlug = createSlug(fetchedExam.name);
+  const subjectSlugValue = subject.slug || createSlug(subject.name);
+
+  // Calculate hierarchical navigation
+  const [nextNav, prevNav] = await Promise.all([
+    getNextSubject({
+      examId: examIdValue,
+      examSlug: examSlug,
+      subjectId: foundSubject._id,
+      subjectSlug: subjectSlugValue,
+      currentIndex: subjectIndex,
+      allItems: fetchedSubjects,
+    }),
+    getPreviousSubject({
+      examId: examIdValue,
+      examSlug: examSlug,
+      subjectId: foundSubject._id,
+      subjectSlug: subjectSlugValue,
+      currentIndex: subjectIndex,
+      allItems: fetchedSubjects,
+    }),
+  ]);
 
   return (
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <section className="bg-gradient-to-b from-purple-50/40 via-white to-purple-50/30 border border-purple-100 rounded-xl p-5">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex-1">
+        <section className="bg-linear-to-b from-purple-50/40 via-white to-purple-50/30 border border-purple-100 rounded-xl p-5 sm:p-6 md:p-8">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-5">
+            <div className="flex-1 w-full">
               <div className="flex items-center gap-3 mb-2">
                 <FaGraduationCap className="text-2xl text-indigo-600" />
                 <h1 className="text-2xl font-bold text-indigo-900">
                   {subject.name}
                 </h1>
               </div>
-              <p className="text-sm text-gray-600 ml-11">
-                {exam.name} &gt; {subject.name}
+              <p className="text-sm text-gray-600 ml-0 md:ml-11">
+                {fetchedExam.name} &gt; {subject.name}
               </p>
             </div>
 
             {/* Progress */}
-            <div className="text-right">
-              <p className="text-xs text-gray-500 mb-1">My Preparation</p>
-              <div className="flex items-center gap-3">
+            <div className="w-full md:w-auto text-left md:text-right">
+              <p className="text-xs text-gray-500 mb-2 md:mb-1 uppercase tracking-wide">
+                My Preparation
+              </p>
+              <div className="flex items-center gap-3 md:justify-end">
                 <span className="font-semibold text-gray-700">0%</span>
-                <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden">
+                <div className="w-full max-w-[160px] h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-blue-500 transition-all duration-300"
                     style={{ width: "0%" }}
@@ -147,180 +130,72 @@ const SubjectPage = () => {
         </section>
 
         {/* Tabs */}
-        <section className="bg-white rounded-xl shadow-md border border-gray-100">
-          <nav className="flex justify-around border-b border-gray-200 bg-gray-50">
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`relative px-5 py-3 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "text-blue-600 border-b-2 border-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  {tab}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="p-6 md:p-8 min-h-[200px]">
-            <div className="text-gray-600 leading-relaxed">
-              {
-                {
-                  Overview: (
-                    <div className="space-y-4">
-                      {subject?.content ? (
-                        <div
-                          className="prose prose-sm max-w-none"
-                          dangerouslySetInnerHTML={{
-                            __html: subject.content,
-                          }}
-                        />
-                      ) : (
-                        <>
-                          <h3 className="text-xl font-bold text-gray-900 mb-2">
-                            Subject Overview
-                          </h3>
-                          <p className="text-gray-600">
-                            Welcome to your {subject.name} preparation for{" "}
-                            {exam.name}. Here you&apos;ll find comprehensive
-                            resources, study materials, and track your progress
-                            across all categories and topics.
-                          </p>
-                        </>
-                      )}
-
-                      {/* Subject Stats */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-                        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
-                          <FaBook className="text-blue-600 text-2xl mb-2" />
-                          <h4 className="font-semibold text-gray-900 mb-1">
-                            Units
-                          </h4>
-                          <p className="text-sm text-gray-600">
-                            {units.length} Units
-                          </p>
-                        </div>
-                        <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-lg p-4 border border-purple-100">
-                          <FaChartLine className="text-purple-600 text-2xl mb-2" />
-                          <h4 className="font-semibold text-gray-900 mb-1">
-                            Subject Overview
-                          </h4>
-                          <p className="text-sm text-gray-600">
-                            Explore all units
-                          </p>
-                        </div>
-                        <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 border border-green-100">
-                          <FaTrophy className="text-green-600 text-2xl mb-2" />
-                          <h4 className="font-semibold text-gray-900 mb-1">
-                            Study Resources
-                          </h4>
-                          <p className="text-sm text-gray-600">
-                            Access study materials
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ),
-                  "Discussion Forum": (
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">
-                        Discussion Forum
-                      </h3>
-                      <p className="text-gray-600 mb-4">
-                        Connect with fellow students studying {subject.name} for{" "}
-                        {exam.name}. Ask questions, share knowledge, and get help
-                        from the community.
-                      </p>
-                      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <p className="text-sm text-gray-500 italic">
-                          Discussion forum features will be available soon.
-                          Start engaging with your peers!
-                        </p>
-                      </div>
-                    </div>
-                  ),
-                  "Practice Test": (
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">
-                        Practice Tests
-                      </h3>
-                      <p className="text-gray-600 mb-4">
-                        Take practice tests specifically designed for{" "}
-                        {subject.name} topics. Test your knowledge and identify
-                        areas for improvement.
-                      </p>
-                      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <p className="text-sm text-gray-500 italic">
-                          Practice tests will be available soon. Start practicing
-                          to excel in your {exam.name} preparation!
-                        </p>
-                      </div>
-                    </div>
-                  ),
-                  Performance: (
-                    <div>
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">
-                        Performance Analytics
-                      </h3>
-                      <p className="text-gray-600 mb-4">
-                        Track your performance in {subject.name} across all
-                        categories and topics. Get insights into your strengths
-                        and areas that need more focus.
-                      </p>
-                      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <p className="text-sm text-gray-500 italic">
-                          Performance analytics dashboard will be available
-                          soon. Monitor your progress and improve your scores!
-                        </p>
-                      </div>
-                    </div>
-                  ),
-                }[activeTab]
-              }
-            </div>
-          </div>
-        </section>
+        <TabsClient
+          content={subjectDetails?.content}
+          examId={fetchedExam._id}
+          subjectId={subject._id}
+          entityName={subject.name}
+          entityType="subject"
+          unitsCount={fetchedUnits.length}
+        />
 
         {/* Units Section */}
-        <section className="bg-white rounded-xl shadow-lg border border-gray-100 p-6 md:p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <FaBook className="text-xl text-indigo-600" />
-            <h2 className="text-xl font-semibold text-gray-900">
-              {exam.name} &gt; {subject.name} Units
-            </h2>
-          </div>
+        <section className="bg-transparent">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
+              <div className="flex items-start gap-2">
+                <FaBook className="text-lg sm:text-xl text-indigo-600" />
+                <div>
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">
+                    {fetchedExam.name} &gt; {subject.name} Units
+                  </h2>
+                  <p className="mt-1 text-xs sm:text-sm text-gray-500">
+                    Review each unit, its weightage, and completion progress.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 hidden sm:grid sm:grid-cols-[minmax(0,1fr)_140px_180px] gap-6 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <span className="text-left">Unit</span>
+                <span className="text-center">Status</span>
+                <span className="text-center">Progress</span>
+              </div>
+            </div>
 
-          <div className="space-y-3">
-            {units.length > 0 ? (
-              units.map((unit, index) => {
-                const unitSlug = createSlug(unit.name);
-                return (
-                  <ListItem
-                    key={unit._id}
-                    item={{
-                      name: unit.name,
-                      weightage: unit.weightage || "20%",
-                      engagement: unit.engagement || "2.2K",
-                      isCompleted: unit.isCompleted || false,
-                      progress: unit.progress || 0,
-                    }}
-                    index={index}
-                    href={`/${examSlug}/${subjectSlugValue}/${unitSlug}`}
-                  />
-                );
-              })
+            {fetchedUnits.length > 0 ? (
+              <div className="divide-y divide-gray-100">
+                {fetchedUnits.map((unit, index) => {
+                  const unitSlug = unit.slug || createSlug(unit.name);
+                  return (
+                    <ListItem
+                      key={unit._id}
+                      item={{
+                        name: unit.name,
+                        weightage: unit.weightage || "20%",
+                        engagement: unit.engagement || "2.2K",
+                        isCompleted: unit.isCompleted || false,
+                        progress: unit.progress || 0,
+                      }}
+                      index={index}
+                      href={`/${examSlug}/${subjectSlugValue}/${unitSlug}`}
+                    />
+                  );
+                })}
+              </div>
             ) : (
-              <div className="text-center py-8 text-gray-500">
+              <div className="px-4 sm:px-6 py-10 text-center text-gray-500">
                 No units available for this subject.
               </div>
             )}
           </div>
         </section>
+
+        {/* Navigation */}
+        <NavigationClient
+          backUrl={`/${examSlug}`}
+          backLabel={`Back to ${fetchedExam.name}`}
+          prevNav={prevNav}
+          nextNav={nextNav}
+        />
       </div>
     </MainLayout>
   );

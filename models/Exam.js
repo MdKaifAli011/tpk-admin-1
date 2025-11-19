@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { createSlug, generateUniqueSlug } from "../utils/serverSlug.js";
 
 const examSchema = new mongoose.Schema(
   {
@@ -8,33 +9,47 @@ const examSchema = new mongoose.Schema(
       unique: true,
       trim: true,
     },
+    slug: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+    },
     status: {
       type: String,
       enum: ["active", "inactive", "draft"],
       default: "active",
     },
-    content: {
-      type: String,
-      default: "",
-    },
-    title: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    metaDescription: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    keywords: {
-      type: String,
-      trim: true,
-      default: "",
-    },
   },
   { timestamps: true }
 );
+
+// Index for slug
+examSchema.index({ slug: 1 });
+
+// Pre-save hook to auto-generate slug
+examSchema.pre("save", async function (next) {
+  if (this.isModified("name") || this.isNew) {
+    const baseSlug = createSlug(this.name);
+    
+    // Check if slug exists (excluding current document for updates)
+    const checkExists = async (slug, excludeId) => {
+      const query = { slug };
+      if (excludeId) {
+        query._id = { $ne: excludeId };
+      }
+      const existing = await mongoose.models.Exam.findOne(query);
+      return !!existing;
+    };
+    
+    this.slug = await generateUniqueSlug(
+      baseSlug,
+      checkExists,
+      this._id || null
+    );
+  }
+  next();
+});
 
 // Cascading delete: When an Exam is deleted, delete all related Subjects, Units, Chapters, Topics, and SubTopics
 examSchema.pre("findOneAndDelete", async function () {
@@ -51,6 +66,13 @@ examSchema.pre("findOneAndDelete", async function () {
       const Chapter = mongoose.models.Chapter || mongoose.model("Chapter");
       const Topic = mongoose.models.Topic || mongoose.model("Topic");
       const SubTopic = mongoose.models.SubTopic || mongoose.model("SubTopic");
+      const ExamDetails = mongoose.models.ExamDetails || mongoose.model("ExamDetails");
+
+      // Delete exam details first
+      const examDetailsResult = await ExamDetails.deleteMany({ examId: exam._id });
+      console.log(
+        `🗑️ Cascading delete: Deleted ${examDetailsResult.deletedCount} ExamDetails for exam ${exam._id}`
+      );
 
       // Since all entities have examId, we can delete them all directly by examId
       // Delete in reverse order of hierarchy to maintain referential integrity

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Unit from "@/models/Unit";
 import mongoose from "mongoose";
+import { logger } from "@/utils/logger";
 
 // ---------- REORDER UNITS ----------
 export async function PATCH(request) {
@@ -22,6 +23,40 @@ export async function PATCH(request) {
       if (!mongoose.Types.ObjectId.isValid(unit.id)) {
         return NextResponse.json(
           { success: false, message: `Invalid unit ID: ${unit.id}` },
+          { status: 400 }
+        );
+      }
+      if (!unit.orderNumber || typeof unit.orderNumber !== 'number') {
+        return NextResponse.json(
+          { success: false, message: `Each unit must have a valid orderNumber` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate that all units belong to the same subject and exam
+    const unitDocs = await Unit.find({ _id: { $in: units.map(u => u.id) } })
+      .select('subjectId examId');
+    
+    if (unitDocs.length !== units.length) {
+      return NextResponse.json(
+        { success: false, message: "Some units not found" },
+        { status: 404 }
+      );
+    }
+
+    const firstUnit = unitDocs[0];
+    const firstSubjectId = firstUnit.subjectId?.toString() || firstUnit.subjectId;
+    const firstExamId = firstUnit.examId?.toString() || firstUnit.examId;
+
+    for (let i = 1; i < unitDocs.length; i++) {
+      const unit = unitDocs[i];
+      const subjectId = unit.subjectId?.toString() || unit.subjectId;
+      const examId = unit.examId?.toString() || unit.examId;
+      
+      if (subjectId !== firstSubjectId || examId !== firstExamId) {
+        return NextResponse.json(
+          { success: false, message: "All units must belong to the same subject and exam" },
           { status: 400 }
         );
       }
@@ -49,7 +84,7 @@ export async function PATCH(request) {
       message: "Units reordered successfully",
     });
   } catch (error) {
-    console.error("Error reordering units:", error);
+    logger.error("Error reordering units:", error);
     return NextResponse.json(
       { success: false, message: "Failed to reorder units" },
       { status: 500 }

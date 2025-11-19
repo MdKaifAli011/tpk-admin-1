@@ -1,14 +1,16 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { FaArrowLeft, FaSave, FaEdit } from "react-icons/fa";
+import { FaArrowLeft, FaSave, FaEdit, FaLock } from "react-icons/fa";
 import { ToastContainer, useToast } from "../ui/Toast";
 import { LoadingSpinner } from "../ui/SkeletonLoader";
 import RichTextEditor from "../ui/RichTextEditor";
 import api from "@/lib/api";
+import { usePermissions, getPermissionMessage } from "../../hooks/usePermissions";
 
 const TopicDetailPage = ({ topicId }) => {
   const router = useRouter();
+  const { canEdit, role } = usePermissions();
   const { toasts, removeToast, success, error: showError } = useToast();
   const isFetchingRef = useRef(false);
 
@@ -30,18 +32,32 @@ const TopicDetailPage = ({ topicId }) => {
     isFetchingRef.current = true;
     try {
       setIsLoading(true);
-      const response = await api.get(`/topic/${topicId}`);
-      if (response.data.success) {
-        const topicData = response.data.data;
+      // Fetch main topic and details in parallel
+      const [topicRes, detailsRes] = await Promise.all([
+        api.get(`/topic/${topicId}`),
+        api.get(`/topic/${topicId}/details`),
+      ]);
+      
+      if (topicRes.data.success) {
+        const topicData = topicRes.data.data;
         setTopic(topicData);
+        
+        // Get details or use defaults
+        const details = detailsRes.data?.success ? detailsRes.data.data : {
+          content: "",
+          title: "",
+          metaDescription: "",
+          keywords: "",
+        };
+        
         setFormData({
           name: topicData.name || "",
-          content: topicData.content || "",
-          title: topicData.title || "",
-          metaDescription: topicData.metaDescription || "",
-          keywords: topicData.keywords || "",
+          content: details.content || "",
+          title: details.title || "",
+          metaDescription: details.metaDescription || "",
+          keywords: details.keywords || "",
         });
-      } else setError(response.data.message || "Failed to fetch topic");
+      } else setError(topicRes.data.message || "Failed to fetch topic");
     } catch (err) {
       setError(err.response?.data?.message || "Failed to fetch topic");
     } finally {
@@ -55,14 +71,32 @@ const TopicDetailPage = ({ topicId }) => {
   }, [topicId, fetchTopic]);
 
   const handleSave = async () => {
+    // Check permissions
+    if (!canEdit) {
+      showError(getPermissionMessage("edit", role));
+      return;
+    }
+
     try {
       setIsSaving(true);
-      const response = await api.put(`/topic/${topicId}`, formData);
-      if (response.data.success) {
-        setTopic(response.data.data);
+      // Save main topic and details separately
+      const [topicRes, detailsRes] = await Promise.all([
+        api.put(`/topic/${topicId}`, { name: formData.name }),
+        api.put(`/topic/${topicId}/details`, {
+          content: formData.content,
+          title: formData.title,
+          metaDescription: formData.metaDescription,
+          keywords: formData.keywords,
+        }),
+      ]);
+      
+      if (topicRes.data.success && detailsRes.data?.success) {
+        setTopic(topicRes.data.data);
         success("Topic details saved successfully!");
         setIsEditing(false);
-      } else showError(response.data.message || "Failed to update topic");
+      } else {
+        showError(topicRes.data.message || detailsRes.data?.message || "Failed to update topic");
+      }
     } catch (err) {
       showError(err.response?.data?.message || "Failed to update topic");
     } finally {
@@ -182,25 +216,51 @@ const TopicDetailPage = ({ topicId }) => {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
-              >
-                {isSaving ? (
-                  <LoadingSpinner size="small" />
-                ) : (
-                  <FaSave className="w-4 h-4" />
-                )}
-                {isSaving ? "Saving..." : "Save Changes"}
-              </button>
+              {canEdit ? (
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <LoadingSpinner size="small" />
+                  ) : (
+                    <FaSave className="w-4 h-4" />
+                  )}
+                  {isSaving ? "Saving..." : "Save Changes"}
+                </button>
+              ) : (
+                <button
+                  disabled
+                  title={getPermissionMessage("edit", role)}
+                  className="px-2 py-2 bg-gray-300 text-gray-500 rounded-xl font-semibold flex items-center gap-2 cursor-not-allowed transition-all duration-200"
+                >
+                  <FaLock className="w-4 h-4" />
+                  Save Changes
+                </button>
+              )}
             </>
-          ) : (
+          ) : canEdit ? (
             <button
-              onClick={() => setIsEditing(true)}
+              onClick={() => {
+                if (canEdit) {
+                  setIsEditing(true);
+                } else {
+                  showError(getPermissionMessage("edit", role));
+                }
+              }}
               className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200"
             >
               <FaEdit className="w-4 h-4" />
+              Edit Topic
+            </button>
+          ) : (
+            <button
+              disabled
+              title={getPermissionMessage("edit", role)}
+              className="px-2 py-2 bg-gray-300 text-gray-500 rounded-xl font-semibold flex items-center gap-2 cursor-not-allowed transition-all duration-200"
+            >
+              <FaLock className="w-4 h-4" />
               Edit Topic
             </button>
           )}

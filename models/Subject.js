@@ -1,11 +1,16 @@
 import mongoose from "mongoose";
-import Exam from "./Exam";
+import Exam from "./Exam.js";
+import { createSlug, generateUniqueSlug } from "../utils/serverSlug.js";
 
 const subjectSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
+      trim: true,
+    },
+    slug: {
+      type: String,
       trim: true,
     },
     // Order number for subject within an exam (independent per exam)
@@ -23,28 +28,12 @@ const subjectSchema = new mongoose.Schema(
       enum: ["active", "inactive"],
       default: "active",
     },
-    content: {
-      type: String,
-      default: "",
-    },
-    title: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    metaDescription: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    keywords: {
-      type: String,
-      trim: true,
-      default: "",
-    },
   },
   { timestamps: true }
 );
+
+// Compound index for unique slug per exam
+subjectSchema.index({ examId: 1, slug: 1 }, { unique: true, sparse: true });
 
 // Ensure unique ordering per exam only when orderNumber is set
 // This keeps order numbers independent per exam and avoids conflicts for docs without orderNumber
@@ -52,6 +41,30 @@ subjectSchema.index(
   { examId: 1, orderNumber: 1 },
   { unique: true, partialFilterExpression: { orderNumber: { $exists: true } } }
 );
+
+// Pre-save hook to auto-generate slug
+subjectSchema.pre("save", async function (next) {
+  if (this.isModified("name") || this.isNew) {
+    const baseSlug = createSlug(this.name);
+    
+    // Check if slug exists within the same exam (excluding current document for updates)
+    const checkExists = async (slug, excludeId) => {
+      const query = { examId: this.examId, slug };
+      if (excludeId) {
+        query._id = { $ne: excludeId };
+      }
+      const existing = await mongoose.models.Subject.findOne(query);
+      return !!existing;
+    };
+    
+    this.slug = await generateUniqueSlug(
+      baseSlug,
+      checkExists,
+      this._id || null
+    );
+  }
+  next();
+});
 
 // Cascading delete: When a Subject is deleted, delete all related Units, Chapters, Topics, and SubTopics
 subjectSchema.pre("findOneAndDelete", async function () {
@@ -67,6 +80,16 @@ subjectSchema.pre("findOneAndDelete", async function () {
       const Chapter = mongoose.models.Chapter || mongoose.model("Chapter");
       const Topic = mongoose.models.Topic || mongoose.model("Topic");
       const SubTopic = mongoose.models.SubTopic || mongoose.model("SubTopic");
+      const SubjectDetails =
+        mongoose.models.SubjectDetails || mongoose.model("SubjectDetails");
+
+      // Delete subject details first
+      const subjectDetailsResult = await SubjectDetails.deleteMany({
+        subjectId: subject._id,
+      });
+      console.log(
+        `🗑️ Cascading delete: Deleted ${subjectDetailsResult.deletedCount} SubjectDetails for subject ${subject._id}`
+      );
 
       // Find all units in this subject
       const units = await Unit.find({ subjectId: subject._id });
@@ -139,4 +162,3 @@ if (mongoose.connection?.models?.Subject) {
 const Subject = mongoose.model("Subject", subjectSchema);
 
 export default Subject;
-

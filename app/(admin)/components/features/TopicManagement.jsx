@@ -8,10 +8,12 @@ import React, {
 } from "react";
 import TopicsTable from "../table/TopicsTable";
 import { LoadingWrapper, SkeletonChaptersTable } from "../ui/SkeletonLoader";
-import { FaEdit, FaPlus, FaTimes, FaFilter } from "react-icons/fa";
+import { FaEdit, FaPlus, FaTimes, FaFilter, FaLock } from "react-icons/fa";
 import api from "@/lib/api";
+import { usePermissions, getPermissionMessage } from "../../hooks/usePermissions";
 
 const TopicManagement = () => {
+  const { canCreate, canEdit, canDelete, canReorder, role } = usePermissions();
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editingTopic, setEditingTopic] = useState(null);
@@ -22,7 +24,9 @@ const TopicManagement = () => {
   const [exams, setExams] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [units, setUnits] = useState([]);
+  const [filterUnits, setFilterUnits] = useState([]); // Separate units for filter section
   const [chapters, setChapters] = useState([]);
+  const [filterChapters, setFilterChapters] = useState([]); // Separate chapters for filter section
   const [formData, setFormData] = useState({
     name: "",
     examId: "",
@@ -58,7 +62,7 @@ const TopicManagement = () => {
       isFetchingRef.current = true;
       setIsDataLoading(true);
       setError(null);
-      const response = await api.get("/topic");
+      const response = await api.get("/topic?status=all&limit=10000");
 
       if (response.data.success) {
         setTopics(response.data.data);
@@ -81,9 +85,10 @@ const TopicManagement = () => {
   // Fetch exams from API
   const fetchExams = useCallback(async () => {
     try {
-      const response = await api.get("/exam");
+      // Fetch all exams (active and inactive) for dropdown
+      const response = await api.get("/exam?status=all");
       if (response.data.success) {
-        setExams(response.data.data);
+        setExams(response.data.data || []);
       }
     } catch (error) {
       console.error("❌ Error fetching exams:", error);
@@ -93,36 +98,57 @@ const TopicManagement = () => {
   // Fetch subjects from API
   const fetchSubjects = useCallback(async () => {
     try {
-      const response = await api.get("/subject");
+      // Fetch all subjects (active and inactive) for dropdown
+      const response = await api.get("/subject?status=all");
       if (response.data.success) {
-        setSubjects(response.data.data);
+        setSubjects(response.data.data || []);
       }
     } catch (error) {
       console.error("❌ Error fetching subjects:", error);
     }
   }, []);
 
-  // Fetch units from API
-  const fetchUnits = useCallback(async () => {
+  // Fetch units from API based on exam and subject
+  const fetchUnits = useCallback(async (examId, subjectId) => {
+    if (!examId || !subjectId) {
+      setUnits([]);
+      return;
+    }
     try {
-      const response = await api.get("/unit");
+      // Fetch units for the selected exam and subject
+      const response = await api.get(
+        `/unit?examId=${examId}&subjectId=${subjectId}&status=all&limit=1000`
+      );
       if (response.data.success) {
-        setUnits(response.data.data);
+        setUnits(response.data.data || []);
+      } else {
+        setUnits([]);
       }
     } catch (error) {
       console.error("❌ Error fetching units:", error);
+      setUnits([]);
     }
   }, []);
 
-  // Fetch chapters from API
-  const fetchChapters = useCallback(async () => {
+  // Fetch chapters from API based on unit
+  const fetchChapters = useCallback(async (unitId) => {
+    if (!unitId) {
+      setChapters([]);
+      return;
+    }
     try {
-      const response = await api.get("/chapter");
+      // Fetch chapters for the selected unit
+      const response = await api.get(
+        `/chapter?unitId=${unitId}&status=all&limit=1000`
+      );
       if (response.data.success) {
-        setChapters(response.data.data);
+        setChapters(response.data.data || []);
+      } else {
+        setChapters([]);
       }
     } catch (error) {
       console.error("❌ Error fetching chapters:", error);
+      setChapters([]);
     }
   }, []);
 
@@ -131,101 +157,86 @@ const TopicManagement = () => {
     fetchTopics();
     fetchExams();
     fetchSubjects();
-    fetchUnits();
-    fetchChapters();
-  }, [fetchTopics, fetchExams, fetchSubjects, fetchUnits, fetchChapters]);
+    // Don't fetch units and chapters on mount - will fetch when parent is selected
+  }, [fetchTopics, fetchExams, fetchSubjects]);
+
+  // Auto-clear error after 5 seconds with cleanup
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // Filter subjects based on selected exam
   const filteredSubjects = useMemo(() => {
-    if (formData.examId && subjects) {
-      const filtered = subjects.filter(
-        (subject) =>
-          subject.examId._id === formData.examId ||
-          subject.examId === formData.examId
-      );
-      return filtered;
+    if (!formData.examId) {
+      return subjects || [];
     }
-    return subjects || [];
+    if (!subjects || subjects.length === 0) {
+      return [];
+    }
+    // Filter subjects by selected exam (handle both populated and non-populated examId)
+    return subjects.filter(
+      (subject) =>
+        subject.examId?._id === formData.examId ||
+        subject.examId === formData.examId
+    );
   }, [formData.examId, subjects]);
 
-  // Filter units based on selected subject
+  // Units are already filtered by API call, so return all units
   const filteredUnits = useMemo(() => {
-    if (formData.subjectId && units) {
-      const filtered = units.filter(
-        (unit) =>
-          unit.subjectId._id === formData.subjectId ||
-          unit.subjectId === formData.subjectId
-      );
-      return filtered;
-    }
+    // Units are already filtered by fetchUnits(examId, subjectId), so just return them
     return units || [];
-  }, [formData.subjectId, units]);
+  }, [units]);
 
-  // Filter chapters based on selected unit
+  // Chapters are already filtered by API call, so return all chapters
   const filteredChapters = useMemo(() => {
-    let result = [];
-    if (formData.unitId && chapters) {
-      result = chapters.filter(
-        (chapter) =>
-          chapter.unitId._id === formData.unitId ||
-          chapter.unitId === formData.unitId
-      );
-    } else {
-      result = chapters || [];
-    }
+    // Chapters are already filtered by fetchChapters(unitId), so just return them
     // Sort by orderNumber in ascending order
-    return result.sort((a, b) => {
+    const sorted = (chapters || []).sort((a, b) => {
       const ao = a.orderNumber || 0;
       const bo = b.orderNumber || 0;
       return ao - bo;
     });
-  }, [formData.unitId, chapters]);
+    return sorted;
+  }, [chapters]);
 
   // Filter subjects for edit form
   const filteredEditSubjects = useMemo(() => {
-    if (editFormData.examId && subjects) {
-      const filtered = subjects.filter(
-        (subject) =>
-          subject.examId._id === editFormData.examId ||
-          subject.examId === editFormData.examId
-      );
-      return filtered;
+    if (!editFormData.examId) {
+      return subjects || [];
     }
-    return subjects || [];
+    if (!subjects || subjects.length === 0) {
+      return [];
+    }
+    // Filter subjects by selected exam (handle both populated and non-populated examId)
+    return subjects.filter(
+      (subject) =>
+        subject.examId?._id === editFormData.examId ||
+        subject.examId === editFormData.examId
+    );
   }, [editFormData.examId, subjects]);
 
-  // Filter units for edit form
+  // Units for edit form are already filtered by API call, so return all units
   const filteredEditUnits = useMemo(() => {
-    if (editFormData.subjectId && units) {
-      const filtered = units.filter(
-        (unit) =>
-          unit.subjectId._id === editFormData.subjectId ||
-          unit.subjectId === editFormData.subjectId
-      );
-      return filtered;
-    }
+    // Units are already filtered by fetchUnits(examId, subjectId), so just return them
     return units || [];
-  }, [editFormData.subjectId, units]);
+  }, [units]);
 
-  // Filter chapters for edit form
+  // Chapters for edit form are already filtered by API call, so return all chapters
   const filteredEditChapters = useMemo(() => {
-    let result = [];
-    if (editFormData.unitId && chapters) {
-      result = chapters.filter(
-        (chapter) =>
-          chapter.unitId._id === editFormData.unitId ||
-          chapter.unitId === editFormData.unitId
-      );
-    } else {
-      result = chapters || [];
-    }
+    // Chapters are already filtered by fetchChapters(unitId), so just return them
     // Sort by orderNumber in ascending order
-    return result.sort((a, b) => {
+    const sorted = (chapters || []).sort((a, b) => {
       const ao = a.orderNumber || 0;
       const bo = b.orderNumber || 0;
       return ao - bo;
     });
-  }, [editFormData.unitId, chapters]);
+    return sorted;
+  }, [chapters]);
 
   // Filter subjects based on selected exam for filters
   const filteredFilterSubjects = useMemo(() => {
@@ -236,30 +247,93 @@ const TopicManagement = () => {
     );
   }, [subjects, filterExam]);
 
+  // Fetch units for filter section
+  const fetchUnitsForFilter = useCallback(async (examId, subjectId) => {
+    if (!examId || !subjectId) {
+      setFilterUnits([]);
+      return;
+    }
+    try {
+      const response = await api.get(
+        `/unit?examId=${examId}&subjectId=${subjectId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        setFilterUnits(response.data.data || []);
+      } else {
+        console.error("Failed to fetch filter units:", response.data.message);
+        setFilterUnits([]);
+      }
+    } catch (error) {
+      console.error("Error fetching filter units:", error);
+      setFilterUnits([]);
+    }
+  }, []);
+
+  // Fetch units for filter section when filterSubject changes
+  useEffect(() => {
+    if (filterSubject && filterExam) {
+      fetchUnitsForFilter(filterExam, filterSubject);
+    } else {
+      setFilterUnits([]);
+    }
+  }, [filterSubject, filterExam, fetchUnitsForFilter]);
+
   // Filter units based on selected subject for filters
   const filteredFilterUnits = useMemo(() => {
     if (!filterSubject) return [];
-    return units.filter(
+    return filterUnits.filter(
       (unit) =>
         unit.subjectId?._id === filterSubject ||
         unit.subjectId === filterSubject
     );
-  }, [units, filterSubject]);
+  }, [filterUnits, filterSubject]);
+
+  // Fetch chapters for filter section
+  const fetchChaptersForFilter = useCallback(async (unitId) => {
+    if (!unitId) {
+      setFilterChapters([]);
+      return;
+    }
+    try {
+      const response = await api.get(
+        `/chapter?unitId=${unitId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        const chaptersData = response.data.data || [];
+        // Sort by orderNumber in ascending order
+        const sorted = chaptersData.sort((a, b) => {
+          const ao = a.orderNumber || 0;
+          const bo = b.orderNumber || 0;
+          return ao - bo;
+        });
+        setFilterChapters(sorted);
+      } else {
+        console.error("Failed to fetch filter chapters:", response.data.message);
+        setFilterChapters([]);
+      }
+    } catch (error) {
+      console.error("Error fetching filter chapters:", error);
+      setFilterChapters([]);
+    }
+  }, []);
+
+  // Fetch chapters for filter section when filterUnit changes
+  useEffect(() => {
+    if (filterUnit) {
+      fetchChaptersForFilter(filterUnit);
+    } else {
+      setFilterChapters([]);
+    }
+  }, [filterUnit, fetchChaptersForFilter]);
 
   // Filter chapters based on selected unit for filters
   const filteredFilterChapters = useMemo(() => {
     if (!filterUnit) return [];
-    const filtered = chapters.filter(
+    return filterChapters.filter(
       (chapter) =>
         chapter.unitId?._id === filterUnit || chapter.unitId === filterUnit
     );
-    // Sort by orderNumber in ascending order
-    return filtered.sort((a, b) => {
-      const ao = a.orderNumber || 0;
-      const bo = b.orderNumber || 0;
-      return ao - bo;
-    });
-  }, [chapters, filterUnit]);
+  }, [filterChapters, filterUnit]);
 
   // Filter topics based on filters
   const filteredTopics = useMemo(() => {
@@ -310,13 +384,90 @@ const TopicManagement = () => {
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => {
+      const newData = { ...prev, [name]: value };
+      
+      // Reset subject when exam changes
+      if (name === "examId" && value !== prev.examId) {
+        newData.subjectId = "";
+        newData.unitId = "";
+        newData.chapterId = "";
+        setUnits([]); // Clear units when exam changes
+        setChapters([]); // Clear chapters when exam changes
+      }
+      
+      // Reset unit when subject changes and fetch units for the selected exam and subject
+      if (name === "subjectId" && value !== prev.subjectId) {
+        newData.unitId = "";
+        newData.chapterId = "";
+        setChapters([]); // Clear chapters when subject changes
+        // Fetch units for the selected exam and subject
+        if (newData.examId && value) {
+          fetchUnits(newData.examId, value);
+        } else {
+          setUnits([]);
+        }
+      }
+      
+      // Reset chapter when unit changes and fetch chapters for the selected unit
+      if (name === "unitId" && value !== prev.unitId) {
+        newData.chapterId = "";
+        // Fetch chapters for the selected unit
+        if (value) {
+          fetchChapters(value);
+        } else {
+          setChapters([]);
+        }
+      }
+      
+      // Note: Topic clearing and order number calculation is handled by useEffect
+      // when chapterId changes
+      
+      return newData;
+    });
     setFormError(null);
   };
 
   const handleEditFormChange = (e) => {
     const { name, value } = e.target;
-    setEditFormData((prev) => ({ ...prev, [name]: value }));
+    setEditFormData((prev) => {
+      const newData = { ...prev, [name]: value };
+      
+      // Reset subject when exam changes
+      if (name === "examId" && value !== prev.examId) {
+        newData.subjectId = "";
+        newData.unitId = "";
+        newData.chapterId = "";
+        setUnits([]); // Clear units when exam changes
+        setChapters([]); // Clear chapters when exam changes
+      }
+      
+      // Reset unit when subject changes and fetch units for the selected exam and subject
+      if (name === "subjectId" && value !== prev.subjectId) {
+        newData.unitId = "";
+        newData.chapterId = "";
+        setChapters([]); // Clear chapters when subject changes
+        // Fetch units for the selected exam and subject in edit form
+        if (newData.examId && value) {
+          fetchUnits(newData.examId, value);
+        } else {
+          setUnits([]);
+        }
+      }
+      
+      // Reset chapter when unit changes and fetch chapters for the selected unit
+      if (name === "unitId" && value !== prev.unitId) {
+        newData.chapterId = "";
+        // Fetch chapters for the selected unit in edit form
+        if (value) {
+          fetchChapters(value);
+        } else {
+          setChapters([]);
+        }
+      }
+      
+      return newData;
+    });
     setFormError(null);
   };
 
@@ -332,6 +483,8 @@ const TopicManagement = () => {
     });
     setAdditionalTopics([{ name: "", orderNumber: "" }]);
     setFormError(null);
+    setUnits([]); // Clear units when form is cancelled
+    setChapters([]); // Clear chapters when form is cancelled
   };
 
   const handleCancelEditForm = () => {
@@ -346,6 +499,8 @@ const TopicManagement = () => {
       orderNumber: "",
     });
     setFormError(null);
+    setUnits([]); // Clear units when edit form is cancelled
+    setChapters([]); // Clear chapters when edit form is cancelled
   };
 
   const handleOpenAddForm = () => {
@@ -360,10 +515,15 @@ const TopicManagement = () => {
     });
     setAdditionalTopics([{ name: "", orderNumber: "" }]);
     setFormError(null);
+    setUnits([]); // Clear units when opening new form
+    setChapters([]); // Clear chapters when opening new form
   };
 
   const handleAddMoreTopics = () => {
-    setAdditionalTopics((prev) => [...prev, { name: "", orderNumber: "" }]);
+    setAdditionalTopics((prev) => {
+      const nextOrder = nextOrderNumber + prev.length;
+      return [...prev, { name: "", orderNumber: nextOrder.toString() }];
+    });
   };
 
   const handleRemoveTopic = (index) => {
@@ -380,10 +540,11 @@ const TopicManagement = () => {
     );
   };
 
-  const getNextOrderNumber = async (chapterId) => {
+  const getNextOrderNumber = useCallback(async (chapterId) => {
+    if (!chapterId) return 1;
     try {
-      const response = await api.get(`/topic?chapterId=${chapterId}`);
-      if (response.data.success) {
+      const response = await api.get(`/topic?chapterId=${chapterId}&status=all&limit=1000`);
+      if (response.data.success && response.data.data && response.data.data.length > 0) {
         const existingTopics = response.data.data;
         const maxOrder = existingTopics.reduce(
           (max, topic) => Math.max(max, topic.orderNumber || 0),
@@ -395,29 +556,53 @@ const TopicManagement = () => {
       console.error("Error fetching next order number:", error);
     }
     return 1;
-  };
+  }, []);
 
   // Update order numbers when chapter is selected
   useEffect(() => {
-    if (formData.chapterId) {
+    if (formData.chapterId && showAddForm) {
       getNextOrderNumber(formData.chapterId).then((orderNumber) => {
         setNextOrderNumber(orderNumber);
         setFormData((prev) => ({
           ...prev,
           orderNumber: orderNumber.toString(),
         }));
-        setAdditionalTopics((prev) =>
-          prev.map((topic, index) => ({
-            ...topic,
-            orderNumber: (orderNumber + index).toString(),
-          }))
-        );
+        
+        // Always update topics - create first one if none exist, or update existing ones
+        setAdditionalTopics((prev) => {
+          if (prev.length === 0 || prev.some(t => !t.orderNumber || t.orderNumber === "")) {
+            // Create first topic with calculated order number
+            return [
+              {
+                name: "",
+                orderNumber: orderNumber.toString(),
+              },
+            ];
+          } else {
+            // Update order numbers for existing topics
+            return prev.map((topic, index) => ({
+              ...topic,
+              orderNumber: (orderNumber + index).toString(),
+            }));
+          }
+        });
       });
+    } else if (!formData.chapterId && showAddForm) {
+      // Clear topics when chapter is cleared
+      setAdditionalTopics([{ name: "", orderNumber: "" }]);
+      setNextOrderNumber(1);
     }
-  }, [formData.chapterId]);
+  }, [formData.chapterId, showAddForm, getNextOrderNumber]);
 
   const handleAddTopics = async (e) => {
     e.preventDefault();
+
+    // Check permissions
+    if (!canCreate) {
+      setFormError(getPermissionMessage("create", role));
+      return;
+    }
+
     setIsFormLoading(true);
     setFormError(null);
 
@@ -458,15 +643,36 @@ const TopicManagement = () => {
   };
 
   const handleEditTopic = (topicToEdit) => {
+    // Check permissions
+    if (!canEdit) {
+      setFormError(getPermissionMessage("edit", role));
+      return;
+    }
+
+    const examId = topicToEdit.examId?._id || topicToEdit.examId;
+    const subjectId = topicToEdit.subjectId?._id || topicToEdit.subjectId;
+    const unitId = topicToEdit.unitId?._id || topicToEdit.unitId;
+    const chapterId = topicToEdit.chapterId?._id || topicToEdit.chapterId;
+
     setEditingTopic(topicToEdit);
     setEditFormData({
       name: topicToEdit.name,
-      examId: topicToEdit.examId._id || topicToEdit.examId,
-      subjectId: topicToEdit.subjectId._id || topicToEdit.subjectId,
-      unitId: topicToEdit.unitId._id || topicToEdit.unitId,
-      chapterId: topicToEdit.chapterId._id || topicToEdit.chapterId,
-      orderNumber: topicToEdit.orderNumber,
+      examId: examId,
+      subjectId: subjectId,
+      unitId: unitId,
+      chapterId: chapterId,
+      orderNumber: topicToEdit.orderNumber?.toString() || "",
     });
+    
+    // Fetch units and chapters for the selected exam, subject, and unit when editing
+    if (examId && subjectId) {
+      fetchUnits(examId, subjectId).then(() => {
+        if (unitId) {
+          fetchChapters(unitId);
+        }
+      });
+    }
+    
     setShowEditForm(true);
   };
 
@@ -482,7 +688,9 @@ const TopicManagement = () => {
         subjectId: editFormData.subjectId,
         unitId: editFormData.unitId,
         chapterId: editFormData.chapterId,
-        orderNumber: parseInt(editFormData.orderNumber),
+        orderNumber: editFormData.orderNumber && editFormData.orderNumber.trim()
+          ? parseInt(editFormData.orderNumber)
+          : undefined,
       });
 
       if (response.data.success) {
@@ -511,6 +719,12 @@ const TopicManagement = () => {
   };
 
   const handleDeleteTopic = async (topicToDelete) => {
+    // Check permissions
+    if (!canDelete) {
+      setFormError(getPermissionMessage("delete", role));
+      return;
+    }
+
     if (
       !window.confirm(
         `Are you sure you want to delete "${topicToDelete.name}"?`
@@ -590,6 +804,12 @@ const TopicManagement = () => {
   };
 
   const handleDragEnd = async (result) => {
+    // Check permissions
+    if (!canReorder) {
+      setFormError(getPermissionMessage("reorder", role));
+      return;
+    }
+
     if (!result.destination) return;
 
     const sourceIndex = result.source.index;
@@ -597,31 +817,68 @@ const TopicManagement = () => {
 
     if (sourceIndex === destinationIndex) return;
 
-    const reorderedItem = topics[sourceIndex];
+    const items = Array.from(topics);
+    const reorderedItem = items[sourceIndex];
+    
+    // Get the chapter ID to identify the group
+    const chapterId = reorderedItem.chapterId?._id || reorderedItem.chapterId;
 
-    // Optimistic UI update
-    const newTopics = Array.from(topics);
-    const [removed] = newTopics.splice(sourceIndex, 1);
-    newTopics.splice(destinationIndex, 0, removed);
+    // Find all topics in the same group (same chapter)
+    const groupTopics = items.filter((topic) => {
+      const topicChapterId = topic.chapterId?._id || topic.chapterId;
+      return topicChapterId === chapterId;
+    });
 
-    // Update order numbers
-    const updatedTopics = newTopics.map((topic, index) => ({
-      id: topic._id,
+    // Find indices within the group
+    const groupSourceIndex = groupTopics.findIndex(
+      (t) => (t._id || t.id) === (reorderedItem._id || reorderedItem.id)
+    );
+    
+    // Create a reordered group array
+    const reorderedGroup = Array.from(groupTopics);
+    const [movedTopic] = reorderedGroup.splice(groupSourceIndex, 1);
+    
+    // Calculate destination index within the group
+    const groupDestIndex = groupTopics.findIndex((topic, idx) => {
+      if (idx === groupSourceIndex) return false;
+      const flatIndex = items.findIndex(
+        (t) => (t._id || t.id) === (topic._id || topic.id)
+      );
+      return flatIndex >= destinationIndex;
+    });
+    const finalDestIndex = groupDestIndex === -1 ? reorderedGroup.length : groupDestIndex;
+    reorderedGroup.splice(finalDestIndex, 0, movedTopic);
+
+    // Update order numbers only for topics in this group
+    const updatedGroupTopics = reorderedGroup.map((topic, index) => ({
+      ...topic,
       orderNumber: index + 1,
     }));
 
-    setTopics(newTopics);
+    // Update the full topics array, preserving other topics
+    const updatedItems = items.map((topic) => {
+      const updatedTopic = updatedGroupTopics.find(
+        (t) => (t._id || t.id) === (topic._id || topic.id)
+      );
+      return updatedTopic || topic;
+    });
+
+    setTopics(updatedItems);
 
     try {
+      // Prepare topics data for the reorder endpoint
+      const topicsData = updatedGroupTopics.map((topic) => ({
+        id: topic._id,
+        orderNumber: topic.orderNumber,
+      }));
+
       const response = await api.patch("/topic/reorder", {
-        topics: updatedTopics,
+        topics: topicsData,
       });
 
       if (response.data.success) {
         console.log(
-          `✅ Topic "${reorderedItem.name}" moved to position ${
-            destinationIndex + 1
-          }`
+          `✅ Topic "${reorderedItem.name}" moved to position ${finalDestIndex + 1}`
         );
       } else {
         throw new Error(
@@ -637,7 +894,6 @@ const TopicManagement = () => {
           error.response?.data?.message || error.message
         }`
       );
-      setTimeout(() => setError(null), 5000); // Clear error after 5 seconds
     }
   };
 
@@ -672,42 +928,62 @@ const TopicManagement = () => {
         )}
 
         {/* Header Section */}
-        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-2xl shadow-lg border border-gray-200/50 p-4 sm:p-4">
+        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-lg border border-gray-200 p-6 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-xl sm:text-2xl lg:text-2xl font-bold text-gray-900 mb-2">
+              <h1 className="text-2xl font-semibold text-gray-900 mb-2">
                 Topic Management
               </h1>
-              <p className="text-gray-600 text-xs">
+              <p className="text-sm text-gray-600">
                 Manage and organize your topics, create new topics, and track
                 topic performance across your educational platform.
               </p>
             </div>
-            <button
-              onClick={handleOpenAddForm}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
-            >
-              <FaPlus className="w-4 h-4" />
-              Add New Topic
-            </button>
+            {canCreate ? (
+              <button
+                onClick={handleOpenAddForm}
+                className="px-4 py-2 bg-[#0056FF] hover:bg-[#0044CC] text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <FaPlus className="w-4 h-4" />
+                Add New Topic
+              </button>
+            ) : (
+              <button
+                disabled
+                title={getPermissionMessage("create", role)}
+                className="px-4 py-2 bg-gray-300 text-gray-500 rounded-lg text-sm font-medium cursor-not-allowed flex items-center gap-2"
+              >
+                <FaLock className="w-4 h-4" />
+                Add New Topic
+              </button>
+            )}
           </div>
         </div>
 
         {/* Add Topic Form */}
         {showAddForm && (
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
-            <div className="flex items-center gap-2 mb-6">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <FaPlus className="size-3 text-blue-600" />
-              </div>
-              <h2 className="text-sm font-bold text-gray-900">
+          <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold text-gray-900">
                 Add New Topic{additionalTopics.length > 1 ? "s" : ""}
               </h2>
+              <button
+                onClick={handleCancelForm}
+                className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-colors"
+                disabled={isFormLoading}
+              >
+                <FaTimes className="w-4 h-4" />
+              </button>
             </div>
 
             {formError && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-                {formError}
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                  <p className="text-sm font-medium text-red-800">
+                    {formError}
+                  </p>
+                </div>
               </div>
             )}
 
@@ -1069,27 +1345,31 @@ const TopicManagement = () => {
         )}
 
         {/* Topics Table */}
-        <div className="bg-white/80 p-4 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200/50 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
-            <h2 className="text-base sm:text-lg font-bold text-gray-900">
-              Topics List
-            </h2>
-            <p className="text-xs text-gray-600 mt-1">
-              Manage your topics, view details, and perform actions. You can
-              drag to reorder topics.
-            </p>
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Topics List
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Manage your topics, view details, and perform actions. You can
+                  drag to reorder topics.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Filter Button */}
-          <div className="px-4 py-3 border-b border-gray-200">
+          <div className="px-6 py-3 border-b border-gray-200">
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
             >
               <FaFilter className="w-4 h-4" />
               Filter Topics
               {activeFilterCount > 0 && (
-                <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-bold">
+                <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-medium">
                   {activeFilterCount}
                 </span>
               )}
@@ -1098,11 +1378,11 @@ const TopicManagement = () => {
 
           {/* Filter Section */}
           {showFilters && (
-            <div className="px-4 py-4 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200 animate-fadeIn">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                 {/* Filter by Exam */}
                 <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700">
                     Filter by Exam
                   </label>
                   <select
@@ -1113,7 +1393,7 @@ const TopicManagement = () => {
                       setFilterUnit("");
                       setFilterChapter("");
                     }}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm bg-white"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-all"
                   >
                     <option value="">All Exams</option>
                     {exams.map((exam) => (
@@ -1205,7 +1485,7 @@ const TopicManagement = () => {
                     Active Filters:
                   </span>
                   {filterExam && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Exam:{" "}
                       {exams.find((e) => e._id === filterExam)?.name || "N/A"}
                       <button
@@ -1215,14 +1495,14 @@ const TopicManagement = () => {
                           setFilterUnit("");
                           setFilterChapter("");
                         }}
-                        className="hover:bg-green-200 rounded-full p-0.5 transition-colors"
+                        className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
                         <FaTimes className="w-3 h-3" />
                       </button>
                     </span>
                   )}
                   {filterSubject && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Subject:{" "}
                       {subjects.find((s) => s._id === filterSubject)?.name ||
                         "N/A"}
@@ -1232,16 +1512,16 @@ const TopicManagement = () => {
                           setFilterUnit("");
                           setFilterChapter("");
                         }}
-                        className="hover:bg-purple-200 rounded-full p-0.5 transition-colors"
+                        className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
                         <FaTimes className="w-3 h-3" />
                       </button>
                     </span>
                   )}
                   {filterUnit && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Unit:{" "}
-                      {units.find((u) => u._id === filterUnit)?.name || "N/A"}
+                      {filterUnits.find((u) => u._id === filterUnit)?.name || "N/A"}
                       <button
                         onClick={() => {
                           setFilterUnit("");
@@ -1254,13 +1534,13 @@ const TopicManagement = () => {
                     </span>
                   )}
                   {filterChapter && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Chapter:{" "}
-                      {chapters.find((c) => c._id === filterChapter)?.name ||
+                      {filterChapters.find((c) => c._id === filterChapter)?.name ||
                         "N/A"}
                       <button
                         onClick={() => setFilterChapter("")}
-                        className="hover:bg-indigo-200 rounded-full p-0.5 transition-colors"
+                        className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
                         <FaTimes className="w-3 h-3" />
                       </button>
@@ -1268,7 +1548,7 @@ const TopicManagement = () => {
                   )}
                   <button
                     onClick={clearFilters}
-                    className="ml-auto px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full text-xs font-semibold transition-colors"
+                    className="ml-auto px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full text-xs font-medium transition-colors"
                   >
                     Clear All Filters
                   </button>
@@ -1277,7 +1557,7 @@ const TopicManagement = () => {
             </div>
           )}
 
-          <div className="p-4">
+          <div className="p-6">
             <TopicsTable
               topics={filteredTopics}
               onEdit={handleEditTopic}

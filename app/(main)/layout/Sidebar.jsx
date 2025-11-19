@@ -1,442 +1,569 @@
 "use client";
-import React, { useState, useRef, useEffect, useMemo } from "react";
+
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { FaCalendar, FaChevronDown, FaChevronUp } from "react-icons/fa";
-import {
-  fetchExams,
-  fetchExamById,
-  fetchSubjectsByExam,
-  fetchUnitsBySubject,
-  fetchChaptersByUnit,
-  fetchTopicsByChapter,
-  createSlug,
-  findByIdOrSlug,
-} from "../lib/api";
+import { FaSearch, FaChevronRight } from "react-icons/fa";
+import { fetchExams, fetchTree, createSlug, findByIdOrSlug } from "../lib/api";
+import { logger } from "@/utils/logger";
 
-const Sidebar = () => {
-  const router = useRouter();
-  const pathname = usePathname();
-  const dropdownRef = useRef(null);
+// Build node using stored slug if available, fallback to generating from name
+const buildNode = (item) => ({
+  id: item?._id ?? "",
+  name: item?.name ?? "",
+  order: item?.orderNumber ?? 0,
+  slug: item?.slug || (item?.name ? createSlug(item.name) : ""),
+});
 
-  const [examDropdownOpen, setExamDropdownOpen] = useState(false);
-  const [selectedExam, setSelectedExam] = useState(null);
-  const [exams, setExams] = useState([]);
-  const [subjects, setSubjects] = useState({});
-  const [subjectsWithData, setSubjectsWithData] = useState({});
-  const [isLoading, setIsLoading] = useState(true);
+const filterTreeByQuery = (tree, query) => {
+  if (!query) return tree;
 
-  // Extract exam from pathname
-  const pathSegments = pathname.toLowerCase().split("/").filter(Boolean);
-  const currentExamSlug = pathSegments[0];
-  const [subjectKey, unitKey, chapterKey, topicKey] = pathSegments.slice(1);
+  const match = (text) => text.toLowerCase().includes(query);
 
-  // Fetch exams on mount
-  useEffect(() => {
-    const loadExams = async () => {
-      try {
-        const fetchedExams = await fetchExams();
-        setExams(fetchedExams);
+  return tree
+    .map((subject) => {
+      const subjectMatches = match(subject.name);
+      const filteredUnits = (subject.units || [])
+        .map((unit) => {
+          const unitMatches = subjectMatches || match(unit.name);
+          const filteredChapters = (unit.chapters || [])
+            .map((chapter) => {
+              const chapterMatches = unitMatches || match(chapter.name);
+              const filteredTopics = (chapter.topics || []).filter(
+                (topic) => chapterMatches || match(topic.name)
+              );
 
-        // Find current exam from pathname
-        if (currentExamSlug) {
-          const foundExam = findByIdOrSlug(fetchedExams, currentExamSlug);
-          if (foundExam) {
-            setSelectedExam(foundExam);
-            await loadExamData(foundExam);
-          }
-        }
-      } catch (error) {
-        console.error("Error loading exams:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+              if (chapterMatches || filteredTopics.length > 0) {
+                return {
+                  ...chapter,
+                  topics: filteredTopics,
+                };
+              }
+              return null;
+            })
+            .filter(Boolean);
 
-    loadExams();
-  }, []);
-
-  // Load exam data (subjects, units, chapters, topics)
-  const loadExamData = async (exam) => {
-    try {
-      const examIdValue = exam._id;
-
-      // Fetch subjects
-      const fetchedSubjects = await fetchSubjectsByExam(examIdValue);
-      const subjectsMap = {};
-      const subjectsData = {};
-
-      for (const subject of fetchedSubjects) {
-        const subjectSlug = createSlug(subject.name);
-        subjectsMap[subjectSlug] = subject;
-
-        // Fetch units for this subject
-        const units = await fetchUnitsBySubject(subject._id, examIdValue);
-        const unitsData = {};
-
-        for (const unit of units) {
-          const unitSlug = createSlug(unit.name);
-
-          // Fetch chapters for this unit
-          const chapters = await fetchChaptersByUnit(unit._id);
-          const chaptersData = {};
-
-          for (const chapter of chapters) {
-            const chapterSlug = createSlug(chapter.name);
-
-            // Fetch topics for this chapter
-            const topics = await fetchTopicsByChapter(chapter._id);
-            chaptersData[chapterSlug] = {
-              name: chapter.name,
-              topics: topics.map((t) => ({
-                name: t.name,
-                slug: createSlug(t.name),
-              })),
+          if (unitMatches || filteredChapters.length > 0) {
+            return {
+              ...unit,
+              chapters: filteredChapters,
             };
           }
+          return null;
+        })
+        .filter(Boolean);
 
-          unitsData[unitSlug] = {
-            name: unit.name,
-            chapters: chaptersData,
-          };
-        }
-
-        subjectsData[subjectSlug] = {
-          name: subject.name,
-          units: unitsData,
+      if (subjectMatches || filteredUnits.length > 0) {
+        return {
+          ...subject,
+          units: filteredUnits,
         };
       }
+      return null;
+    })
+    .filter(Boolean);
+};
 
-      setSubjects(subjectsMap);
-      setSubjectsWithData(subjectsData);
-    } catch (error) {
-      console.error("Error loading exam data:", error);
-    }
-  };
+const Sidebar = ({ isOpen = false, onClose }) => {
+  const router = useRouter();
+  const pathname = usePathname();
 
-  // Update exam data when exam changes
+  const [exams, setExams] = useState([]);
+  const [activeExamId, setActiveExamId] = useState(null);
+  const [tree, setTree] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [treeLoading, setTreeLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  const hasLoadedExamsRef = useRef(false);
+  const treeCacheRef = useRef(new Map());
+  const treeLoadingRef = useRef(new Set());
+  const pendingApiRequestsRef = useRef(new Map());
+
+  // Cache limits
+  const MAX_TREE_CACHE_SIZE = 10;
+
+  // Debounce search query
   useEffect(() => {
-    if (selectedExam) {
-      loadExamData(selectedExam);
-    }
-  }, [selectedExam]);
+    const timer = setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+    }, 300);
 
-  // Update selected exam when pathname changes
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Cleanup tree cache (LRU eviction)
   useEffect(() => {
-    if (currentExamSlug && exams.length > 0) {
-      const foundExam = findByIdOrSlug(exams, currentExamSlug);
-      if (foundExam && foundExam._id !== selectedExam?._id) {
-        setSelectedExam(foundExam);
+    if (treeCacheRef.current.size > MAX_TREE_CACHE_SIZE) {
+      // Remove oldest entry (first key)
+      const firstKey = treeCacheRef.current.keys().next().value;
+      treeCacheRef.current.delete(firstKey);
+    }
+  }, [tree]);
+
+  const pathSegments = useMemo(
+    () => pathname.split("/").filter(Boolean),
+    [pathname]
+  );
+
+  const examSlugFromPath = pathSegments[0] || "";
+  const subjectSlugFromPath = pathSegments[1] || "";
+  const unitSlugFromPath = pathSegments[2] || "";
+  const chapterSlugFromPath = pathSegments[3] || "";
+  const topicSlugFromPath = pathSegments[4] || "";
+
+  const activeExam = useMemo(
+    () => exams.find((exam) => exam._id === activeExamId) || null,
+    [exams, activeExamId]
+  );
+
+  // Use stored slug if available, fallback to generating from name
+  const activeExamSlug = activeExam
+    ? activeExam.slug || createSlug(activeExam.name)
+    : "";
+
+  const closeOnMobile = useCallback(() => {
+    if (onClose && typeof window !== "undefined" && window.innerWidth < 1024) {
+      onClose();
+    }
+  }, [onClose]);
+
+  const navigateTo = useCallback(
+    (segments = []) => {
+      if (!activeExamSlug) return;
+      const path = `/${[activeExamSlug, ...segments]
+        .filter(Boolean)
+        .join("/")}`;
+      router.push(path);
+      closeOnMobile();
+    },
+    [activeExamSlug, router, closeOnMobile]
+  );
+
+  const loadExams = useCallback(async () => {
+    if (hasLoadedExamsRef.current) return;
+    hasLoadedExamsRef.current = true;
+    try {
+      setError("");
+      const response = await fetchExams({ limit: 100 });
+      setExams(response || []);
+    } catch (err) {
+      logger.error("Error loading exams:", err);
+      setError("Unable to load exams.");
+      // Reset ref on error to allow retry
+      hasLoadedExamsRef.current = false;
+    }
+  }, []);
+
+  // Transform tree data from API to sidebar format
+  const transformTreeData = useCallback((treeData) => {
+    if (!treeData || treeData.length === 0) return [];
+
+    // Find the exam in the tree (should be first or match by ID)
+    const exam = treeData[0];
+    if (!exam || !exam.subjects) return [];
+
+    // Transform subjects to sidebar format
+    return exam.subjects.map((subject) => ({
+      ...buildNode(subject),
+      units: (subject.units || []).map((unit) => ({
+        ...buildNode(unit),
+        chapters: (unit.chapters || []).map((chapter) => ({
+          ...buildNode(chapter),
+          topics: (chapter.topics || []).map((topic) => buildNode(topic)),
+        })),
+      })),
+    }));
+  }, []);
+
+  const loadTree = useCallback(
+    async (examId) => {
+      if (!examId) {
+        setTree([]);
+        setTreeLoading(false);
+        setError("");
+        return;
       }
-    }
-  }, [currentExamSlug, exams]);
 
-  // Initial expansion state - only expand if keys exist
-  const [expandedSubjects, setExpandedSubjects] = useState(
-    subjectKey ? { [subjectKey]: true } : {}
+      if (treeCacheRef.current.has(examId)) {
+        setTree(treeCacheRef.current.get(examId));
+        setTreeLoading(false);
+        setError("");
+        return;
+      }
+
+      if (treeLoadingRef.current.has(examId)) {
+        return;
+      }
+
+      treeLoadingRef.current.add(examId);
+      setTreeLoading(true);
+      setError("");
+
+      try {
+        // Request deduplication: check if request is already pending
+        const requestKey = `tree-${examId}`;
+        if (pendingApiRequestsRef.current.has(requestKey)) {
+          // Wait for existing request
+          const existingRequest = pendingApiRequestsRef.current.get(requestKey);
+          try {
+            await existingRequest;
+          } catch {
+            // Ignore errors from other requests
+          }
+          // Re-check cache after waiting
+          if (treeCacheRef.current.has(examId)) {
+            setTree(treeCacheRef.current.get(examId));
+            setTreeLoading(false);
+            setError("");
+            treeLoadingRef.current.delete(examId);
+            return;
+          }
+        }
+
+        // Create new request and store it - Single API call to fetch entire tree
+        const treePromise = fetchTree({ examId, status: "active" });
+        pendingApiRequestsRef.current.set(requestKey, treePromise);
+
+        const treeData = await treePromise;
+        pendingApiRequestsRef.current.delete(requestKey);
+
+        if (!treeData || treeData.length === 0) {
+          logger.warn("Sidebar: No tree data found for examId:", examId);
+          setError("No navigation data available for this exam.");
+          setTree([]);
+          setTreeLoading(false);
+          treeLoadingRef.current.delete(examId);
+          return;
+        }
+
+        // Transform API response to sidebar format
+        const transformedTree = transformTreeData(treeData);
+
+        if (transformedTree.length === 0) {
+          logger.warn("Sidebar: No subjects found in tree for examId:", examId);
+          setError("No subjects found for this exam.");
+          setTree([]);
+        } else {
+          treeCacheRef.current.set(examId, transformedTree);
+          setTree(transformedTree);
+          setError("");
+        }
+      } catch (err) {
+        logger.error("Error loading sidebar tree:", {
+          message: err.message,
+          stack: err.stack,
+          examId,
+        });
+        // Clean up pending requests on error
+        pendingApiRequestsRef.current.delete(`tree-${examId}`);
+        setError("Unable to load sidebar content.");
+        setTree([]);
+      } finally {
+        setTreeLoading(false);
+        treeLoadingRef.current.delete(examId);
+      }
+    },
+    [transformTreeData]
   );
-  const [expandedUnits, setExpandedUnits] = useState(
-    unitKey ? { [unitKey]: true } : {}
-  );
-  const [expandedChapters, setExpandedChapters] = useState(
-    chapterKey ? { [chapterKey]: true } : {}
-  );
 
-  // Handlers
-  const toggle = (setFn, key) =>
-    setFn((prev) => ({ ...prev, [key]: !prev[key] }));
-
-  const goTo = (path) => router.push(path);
-
-  // Click outside to close dropdown
   useEffect(() => {
-    if (!examDropdownOpen) return;
-    const close = (e) =>
-      !dropdownRef.current?.contains(e.target) && setExamDropdownOpen(false);
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [examDropdownOpen]);
+    loadExams();
+  }, [loadExams]);
 
-  const handleExamChange = async (exam) => {
-    setExamDropdownOpen(false);
-    setSelectedExam(exam);
-    const examSlug = createSlug(exam.name);
-    goTo(`/${examSlug}`);
-  };
+  useEffect(() => {
+    if (exams.length === 0) return;
 
-  if (isLoading) {
-    return (
-      <aside className="w-64 bg-white border-r border-gray-200 hidden lg:block overflow-y-auto shadow-sm">
-        <div className="p-4 space-y-5">
-          <div className="h-12 bg-gray-200 animate-pulse rounded-lg"></div>
-          <div className="space-y-2">
-            {[...Array(3)].map((_, i) => (
-              <div
-                key={i}
-                className="h-10 bg-gray-200 animate-pulse rounded"
-              ></div>
-            ))}
+    const matchedExam =
+      findByIdOrSlug(exams, examSlugFromPath) || exams[0] || null;
+
+    if (matchedExam?._id && matchedExam._id !== activeExamId) {
+      setActiveExamId(matchedExam._id);
+    } else if (!matchedExam && activeExamId && examSlugFromPath) {
+      // If exam from path doesn't match any exam, clear activeExamId
+      // This handles cases where user navigates to a non-existent exam
+      setActiveExamId(null);
+    }
+  }, [exams, examSlugFromPath]);
+
+  useEffect(() => {
+    if (!activeExamId) {
+      setTree([]);
+      setTreeLoading(false);
+      setError("");
+      return;
+    }
+
+    loadTree(activeExamId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeExamId]); // loadTree is stable via useCallback
+
+  const normalizedQuery = debouncedQuery.trim().toLowerCase();
+
+  const filteredTree = useMemo(
+    () => filterTreeByQuery(tree, normalizedQuery),
+    [tree, normalizedQuery]
+  );
+
+  const renderLoading = () => (
+    <div className="px-4 py-6 space-y-3">
+      {Array.from({ length: 6 }).map((_, index) => (
+        <div
+          key={index}
+          className="h-4 rounded bg-gray-200 animate-pulse"
+        ></div>
+      ))}
+    </div>
+  );
+
+  const renderEmpty = () => (
+    <div className="px-4 py-6 text-sm text-gray-500">
+      {activeExam
+        ? "No navigation data available for this exam."
+        : "Select an exam to view its content."}
+    </div>
+  );
+
+  return (
+    <>
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={`fixed lg:static top-0 left-0 bottom-0 z-50 w-72 bg-white border-r border-gray-200 transform transition-transform duration-200 ease-out ${
+          isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        } lg:flex lg:flex-col h-screen lg:h-full`}
+        role="complementary"
+        aria-label="Exam navigation sidebar"
+      >
+        <div className="flex h-full flex-col">
+          <div className="border-b border-gray-200 bg-white/95 px-4 py-4 backdrop-blur supports-backdrop-filter:bg-white/80 shrink-0">
+            <div className="flex items-center justify-between gap-3">
+              {onClose && (
+                <button
+                  className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 transition hover:border-gray-300 hover:bg-gray-100 active:scale-[0.98] lg:hidden"
+                  onClick={onClose}
+                >
+                  Close
+                </button>
+              )}
+            </div>
+            {exams.length > 0 && (
+              <div className="mt-3">
+                <label
+                  htmlFor="exam-selector"
+                  className="mb-1 block text-xs font-medium text-gray-500"
+                >
+                  Exam
+                </label>
+                <select
+                  id="exam-selector"
+                  aria-label="Select an exam"
+                  value={activeExamId || ""}
+                  onChange={(event) => {
+                    const nextExamId = event.target.value || "";
+                    if (!nextExamId) return;
+                    setActiveExamId(nextExamId);
+                    const nextExam =
+                      exams.find((exam) => exam._id === nextExamId) || null;
+                    if (nextExam) {
+                      // Use stored slug if available, fallback to generating from name
+                      const slug = nextExam.slug || createSlug(nextExam.name);
+                      router.push(`/${slug}`);
+                      closeOnMobile();
+                    }
+                  }}
+                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="" disabled>
+                    Select an exam
+                  </option>
+                  {exams.map((exam) => (
+                    <option key={exam._id} value={exam._id}>
+                      {exam.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {tree.length > 0 && (
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-medium text-gray-500">
+                  Search
+                </label>
+                <div className="relative">
+                  <FaSearch className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="search"
+                    aria-label="Search subjects, units, chapters, and topics"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="Find subjects, units, chapters, topics"
+                    className="w-full rounded-md border border-gray-200 bg-white px-9 py-2 text-sm text-gray-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 transition hover:bg-gray-100"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto scrollbar-thin scroll-smooth min-h-0">
+            {treeLoading && renderLoading()}
+            {!treeLoading && error && (
+              <div className="px-4 py-6 text-sm text-red-600">{error}</div>
+            )}
+            {!treeLoading &&
+              !error &&
+              filteredTree.length === 0 &&
+              renderEmpty()}
+
+            {!treeLoading && !error && filteredTree.length > 0 && (
+              <div className="px-3 py-4">
+                <ul className="space-y-2">
+                  {filteredTree.map((subject) => {
+                    const isSubjectActive =
+                      subject.slug && subject.slug === subjectSlugFromPath;
+                    return (
+                      <li
+                        key={subject.id}
+                        className="rounded-lg border border-gray-200 bg-white shadow-sm"
+                      >
+                        <button
+                          onClick={() => navigateTo([subject.slug])}
+                          className={`flex w-full items-center justify-between gap-3 rounded-t-lg px-3 py-2 text-left text-sm font-semibold transition ${
+                            isSubjectActive
+                              ? "bg-blue-600 text-white shadow-inner"
+                              : "text-gray-800 hover:bg-gray-100"
+                          }`}
+                        >
+                          <span className="truncate">{subject.name}</span>
+                          <FaChevronRight
+                            className={`h-3 w-3 shrink-0 ${
+                              isSubjectActive ? "text-white" : "text-gray-400"
+                            }`}
+                          />
+                        </button>
+
+                        {subject.units.length > 0 && (
+                          <ul className="space-y-1 border-t border-gray-200 bg-gray-50 px-3 py-2">
+                            {subject.units.map((unit) => {
+                              const isUnitActive =
+                                isSubjectActive &&
+                                unit.slug === unitSlugFromPath;
+                              return (
+                                <li
+                                  key={unit.id}
+                                  className="rounded-md border border-transparent transition hover:border-gray-200"
+                                >
+                                  <button
+                                    onClick={() =>
+                                      navigateTo([subject.slug, unit.slug])
+                                    }
+                                    className={`w-full rounded px-3 py-2 text-left text-sm transition-colors ${
+                                      isUnitActive
+                                        ? "bg-blue-100 text-blue-700 font-semibold"
+                                        : "text-gray-700 hover:bg-white"
+                                    }`}
+                                  >
+                                    {unit.name}
+                                  </button>
+
+                                  {unit.chapters.length > 0 && (
+                                    <ul className="mt-1 space-y-1 border-l border-gray-200 pl-3">
+                                      {unit.chapters.map((chapter) => {
+                                        const isChapterActive =
+                                          isUnitActive &&
+                                          chapter.slug === chapterSlugFromPath;
+                                        return (
+                                          <li key={chapter.id}>
+                                            <button
+                                              onClick={() =>
+                                                navigateTo([
+                                                  subject.slug,
+                                                  unit.slug,
+                                                  chapter.slug,
+                                                ])
+                                              }
+                                              className={`w-full rounded px-3 py-2 text-left text-xs transition-colors ${
+                                                isChapterActive
+                                                  ? "bg-blue-50 text-blue-700 font-semibold"
+                                                  : "text-gray-600 hover:bg-gray-100"
+                                              }`}
+                                            >
+                                              {chapter.name}
+                                            </button>
+
+                                            {chapter.topics.length > 0 && (
+                                              <ul className="mt-1 space-y-1 border-l border-gray-200 pl-3">
+                                                {chapter.topics.map((topic) => {
+                                                  const isTopicActive =
+                                                    isChapterActive &&
+                                                    topic.slug ===
+                                                      topicSlugFromPath;
+                                                  return (
+                                                    <li key={topic.id}>
+                                                      <button
+                                                        onClick={() =>
+                                                          navigateTo([
+                                                            subject.slug,
+                                                            unit.slug,
+                                                            chapter.slug,
+                                                            topic.slug,
+                                                          ])
+                                                        }
+                                                        className={`w-full rounded px-3 py-1.5 text-left text-xs transition-colors ${
+                                                          isTopicActive
+                                                            ? "bg-blue-600 text-white font-semibold"
+                                                            : "text-gray-600 hover:bg-gray-100"
+                                                        }`}
+                                                      >
+                                                        {topic.name}
+                                                      </button>
+                                                    </li>
+                                                  );
+                                                })}
+                                              </ul>
+                                            )}
+                                          </li>
+                                        );
+                                      })}
+                                    </ul>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
       </aside>
-    );
-  }
-
-  return (
-    <aside className="w-64 bg-white border-r border-gray-200 hidden lg:block overflow-y-auto shadow-sm">
-      <div className="p-4 space-y-5">
-        {/* Exam Dropdown */}
-        <div className="relative" ref={dropdownRef}>
-          <button
-            onClick={() => setExamDropdownOpen((v) => !v)}
-            className="w-full flex items-center justify-between px-4 py-3 rounded-lg bg-gradient-to-r from-blue-50 to-indigo-50 border border-indigo-100 hover:shadow-sm transition-all"
-          >
-            <div className="flex items-center gap-3">
-              <FaCalendar className="text-indigo-600 text-sm" />
-              <span className="text-sm font-medium text-gray-800">
-                {selectedExam?.name || "Select Exam"}
-              </span>
-            </div>
-            <FaChevronDown
-              className={`text-indigo-600 text-xs transition-transform ${
-                examDropdownOpen ? "rotate-180" : ""
-              }`}
-            />
-          </button>
-
-          {examDropdownOpen && (
-            <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-md z-40 overflow-hidden">
-              {exams.map((exam) => (
-                <button
-                  key={exam._id}
-                  onClick={() => handleExamChange(exam)}
-                  className={`w-full text-left px-4 py-2 text-sm hover:bg-indigo-50 ${
-                    selectedExam?._id === exam._id
-                      ? "bg-indigo-100 text-indigo-700 font-medium"
-                      : "text-gray-700"
-                  }`}
-                >
-                  {exam.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Subjects */}
-        {selectedExam && Object.keys(subjectsWithData).length > 0 ? (
-          <div className="space-y-2">
-            {Object.entries(subjectsWithData).map(([subKey, sub]) => {
-              const isSubjectActive =
-                subjectKey && subjectKey === subKey.toLowerCase();
-              const isExpanded = expandedSubjects[subKey] ?? false;
-
-              return (
-                <div key={subKey}>
-                  {/* Subject */}
-                  <div
-                    className={`flex items-center justify-between rounded-md transition-colors ${
-                      isSubjectActive ? "bg-cyan-50" : ""
-                    }`}
-                  >
-                    <button
-                      onClick={() => {
-                        const examSlug = createSlug(selectedExam.name);
-                        goTo(`/${examSlug}/${subKey}`);
-                        setExpandedSubjects((p) => ({ ...p, [subKey]: true }));
-                      }}
-                      className={`flex-1 text-left px-3 py-2 text-sm font-semibold uppercase rounded-md ${
-                        isSubjectActive
-                          ? "text-cyan-700 border-l-4 border-cyan-500 bg-cyan-50"
-                          : "hover:bg-gray-50 text-cyan-700"
-                      }`}
-                    >
-                      {sub.name}
-                    </button>
-                    <button
-                      onClick={() => toggle(setExpandedSubjects, subKey)}
-                      className="p-2 hover:bg-gray-100 rounded-md"
-                    >
-                      {isExpanded ? (
-                        <FaChevronUp className="text-xs text-gray-500" />
-                      ) : (
-                        <FaChevronDown className="text-xs text-gray-500" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Units */}
-                  {isExpanded && Object.keys(sub.units || {}).length > 0 && (
-                    <div className="ml-4 mt-1 space-y-1 border-l border-gray-100 pl-2">
-                      {Object.entries(sub.units || {}).map(
-                        ([unitKeySlug, unit]) => {
-                          const isUnitActive =
-                            unitKey && unitKey === unitKeySlug;
-                          const unitExpanded =
-                            expandedUnits[unitKeySlug] ?? false;
-
-                          return (
-                            <div key={unitKeySlug}>
-                              <div className="flex items-center justify-between">
-                                <button
-                                  onClick={() => {
-                                    const examSlug = createSlug(
-                                      selectedExam.name
-                                    );
-                                    goTo(
-                                      `/${examSlug}/${subKey}/${unitKeySlug}`
-                                    );
-                                    setExpandedUnits((p) => ({
-                                      ...p,
-                                      [unitKeySlug]: true,
-                                    }));
-                                  }}
-                                  className={`flex-1 text-left px-2 py-1.5 rounded text-xs font-semibold ${
-                                    isUnitActive
-                                      ? "bg-purple-50 text-purple-700 border-l-4 border-purple-500"
-                                      : "hover:bg-gray-50 text-purple-700"
-                                  }`}
-                                >
-                                  {unit.name}
-                                </button>
-                                {Object.keys(unit.chapters || {}).length >
-                                  0 && (
-                                  <button
-                                    onClick={() =>
-                                      toggle(setExpandedUnits, unitKeySlug)
-                                    }
-                                    className="p-1 hover:bg-gray-100 rounded-md"
-                                  >
-                                    {unitExpanded ? (
-                                      <FaChevronUp className="text-xs text-gray-400" />
-                                    ) : (
-                                      <FaChevronDown className="text-xs text-gray-400" />
-                                    )}
-                                  </button>
-                                )}
-                              </div>
-
-                              {/* Chapters */}
-                              {unitExpanded &&
-                                Object.keys(unit.chapters || {}).length > 0 && (
-                                  <div className="ml-3 mt-1 space-y-1 border-l border-gray-100 pl-2">
-                                    {Object.entries(unit.chapters || {}).map(
-                                      ([chapterKeySlug, chapter]) => {
-                                        const isChapterActive =
-                                          chapterKey &&
-                                          chapterKey === chapterKeySlug;
-                                        const chapterExpanded =
-                                          expandedChapters[chapterKeySlug] ??
-                                          false;
-
-                                        return (
-                                          <div key={chapterKeySlug}>
-                                            <div className="flex items-center justify-between">
-                                              <button
-                                                onClick={() => {
-                                                  const examSlug = createSlug(
-                                                    selectedExam.name
-                                                  );
-                                                  goTo(
-                                                    `/${examSlug}/${subKey}/${unitKeySlug}/${chapterKeySlug}`
-                                                  );
-                                                  setExpandedChapters((p) => ({
-                                                    ...p,
-                                                    [chapterKeySlug]: true,
-                                                  }));
-                                                }}
-                                                className={`flex-1 text-left px-2 py-1.5 rounded text-xs font-semibold ${
-                                                  isChapterActive
-                                                    ? "bg-indigo-50 text-indigo-700 border-l-4 border-indigo-500"
-                                                    : "hover:bg-gray-50 text-indigo-700"
-                                                }`}
-                                              >
-                                                {chapter.name}
-                                              </button>
-                                              {chapter.topics?.length > 0 && (
-                                                <button
-                                                  onClick={() =>
-                                                    toggle(
-                                                      setExpandedChapters,
-                                                      chapterKeySlug
-                                                    )
-                                                  }
-                                                  className="p-1 hover:bg-gray-100 rounded-md"
-                                                >
-                                                  {chapterExpanded ? (
-                                                    <FaChevronUp className="text-xs text-gray-400" />
-                                                  ) : (
-                                                    <FaChevronDown className="text-xs text-gray-400" />
-                                                  )}
-                                                </button>
-                                              )}
-                                            </div>
-
-                                            {/* Topics */}
-                                            {chapterExpanded &&
-                                              chapter.topics?.length > 0 && (
-                                                <div className="ml-3 mt-1 space-y-1">
-                                                  {chapter.topics.map(
-                                                    (topic) => {
-                                                      const isTopicActive =
-                                                        topicKey &&
-                                                        topicKey === topic.slug;
-                                                      const examSlug =
-                                                        createSlug(
-                                                          selectedExam.name
-                                                        );
-                                                      return (
-                                                        <button
-                                                          key={topic.slug}
-                                                          onClick={() =>
-                                                            goTo(
-                                                              `/${examSlug}/${subKey}/${unitKeySlug}/${chapterKeySlug}/${encodeURIComponent(
-                                                                topic.slug
-                                                              )}`
-                                                            )
-                                                          }
-                                                          className={`w-full text-left px-3 py-1.5 text-xs rounded-md flex items-center ${
-                                                            isTopicActive
-                                                              ? "bg-indigo-100 text-indigo-700 border-l-4 border-indigo-500"
-                                                              : "hover:bg-gray-50 text-gray-700"
-                                                          }`}
-                                                        >
-                                                          {isTopicActive && (
-                                                            <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full mr-2" />
-                                                          )}
-                                                          {topic.name}
-                                                        </button>
-                                                      );
-                                                    }
-                                                  )}
-                                                </div>
-                                              )}
-                                          </div>
-                                        );
-                                      }
-                                    )}
-                                  </div>
-                                )}
-                            </div>
-                          );
-                        }
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : selectedExam ? (
-          <div className="text-sm text-gray-500 text-center py-4">
-            No subjects available
-          </div>
-        ) : (
-          <div className="text-sm text-gray-500 text-center py-4">
-            Select an exam
-          </div>
-        )}
-      </div>
-    </aside>
+    </>
   );
 };
 

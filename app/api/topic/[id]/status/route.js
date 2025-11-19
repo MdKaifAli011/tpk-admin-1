@@ -4,10 +4,18 @@ import Topic from "@/models/Topic";
 // Import child model to ensure it's registered before middleware runs
 import SubTopic from "@/models/SubTopic";
 import mongoose from "mongoose";
+import { requireAction } from "@/middleware/authMiddleware";
+import { logger } from "@/utils/logger";
 
 // ---------- PATCH TOPIC STATUS (with Cascading) ----------
 export async function PATCH(request, { params }) {
   try {
+    // Check authentication and permissions (users need to be able to update)
+    const authCheck = await requireAction(request, "PATCH");
+    if (authCheck.error) {
+      return NextResponse.json(authCheck, { status: authCheck.status || 401 });
+    }
+
     await connectDB();
     const { id } = await params;
     const body = await request.json();
@@ -45,10 +53,13 @@ export async function PATCH(request, { params }) {
     }
 
     // Cascading: Update all children status
-    console.log(`🔄 Cascading status update to ${status} for topic ${id}`);
+    logger.info(`Cascading status update to ${status} for topic ${id}`);
 
-    const result = await SubTopic.updateMany({ topicId: id }, { status });
-    console.log(`✅ Updated ${result.modifiedCount} SubTopics`);
+    const result = await SubTopic.updateMany(
+      { topicId: id },
+      { $set: { status } }
+    );
+    logger.info(`Updated ${result.modifiedCount} SubTopics`);
 
     return NextResponse.json({
       success: true,
@@ -58,7 +69,7 @@ export async function PATCH(request, { params }) {
       data: updated,
     });
   } catch (error) {
-    console.error("Error updating topic status:", error);
+    logger.error("Error updating topic status:", error);
     return NextResponse.json(
       { success: false, message: "Failed to update topic status" },
       { status: 500 }

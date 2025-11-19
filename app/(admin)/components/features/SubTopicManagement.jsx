@@ -8,10 +8,12 @@ import React, {
 } from "react";
 import SubTopicsTable from "../table/SubTopicsTable";
 import { LoadingWrapper, SkeletonChaptersTable } from "../ui/SkeletonLoader";
-import { FaEdit, FaPlus, FaTimes, FaFilter } from "react-icons/fa";
+import { FaEdit, FaPlus, FaTimes, FaFilter, FaLock } from "react-icons/fa";
 import api from "@/lib/api";
+import { usePermissions, getPermissionMessage } from "../../hooks/usePermissions";
 
 const SubTopicsManagement = () => {
+  const { canCreate, canEdit, canDelete, canReorder, role } = usePermissions();
   const [showAddForm, setShowAddForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [editingSubTopic, setEditingSubTopic] = useState(null);
@@ -22,7 +24,9 @@ const SubTopicsManagement = () => {
   const [exams, setExams] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [units, setUnits] = useState([]);
+  const [filterUnits, setFilterUnits] = useState([]); // Separate units for filter section
   const [chapters, setChapters] = useState([]);
+  const [filterChapters, setFilterChapters] = useState([]); // Separate chapters for filter section
   const [topics, setTopics] = useState([]);
   const [formData, setFormData] = useState({
     name: "",
@@ -62,7 +66,7 @@ const SubTopicsManagement = () => {
       isFetchingRef.current = true;
       setIsDataLoading(true);
       setError(null);
-      const response = await api.get("/subtopic");
+      const response = await api.get("/subtopic?status=all&limit=10000");
 
       if (response.data.success) {
         setSubTopics(response.data.data);
@@ -85,9 +89,10 @@ const SubTopicsManagement = () => {
   // Fetch exams from API
   const fetchExams = useCallback(async () => {
     try {
-      const response = await api.get("/exam");
+      // Fetch all exams (active and inactive) for dropdown
+      const response = await api.get("/exam?status=all");
       if (response.data.success) {
-        setExams(response.data.data);
+        setExams(response.data.data || []);
       }
     } catch (error) {
       console.error("❌ Error fetching exams:", error);
@@ -97,48 +102,79 @@ const SubTopicsManagement = () => {
   // Fetch subjects from API
   const fetchSubjects = useCallback(async () => {
     try {
-      const response = await api.get("/subject");
+      // Fetch all subjects (active and inactive) for dropdown
+      const response = await api.get("/subject?status=all");
       if (response.data.success) {
-        setSubjects(response.data.data);
+        setSubjects(response.data.data || []);
       }
     } catch (error) {
       console.error("❌ Error fetching subjects:", error);
     }
   }, []);
 
-  // Fetch units from API
-  const fetchUnits = useCallback(async () => {
+  // Fetch units from API based on exam and subject
+  const fetchUnits = useCallback(async (examId, subjectId) => {
+    if (!examId || !subjectId) {
+      setUnits([]);
+      return;
+    }
     try {
-      const response = await api.get("/unit");
+      // Fetch units for the selected exam and subject
+      const response = await api.get(
+        `/unit?examId=${examId}&subjectId=${subjectId}&status=all&limit=1000`
+      );
       if (response.data.success) {
-        setUnits(response.data.data);
+        setUnits(response.data.data || []);
+      } else {
+        setUnits([]);
       }
     } catch (error) {
       console.error("❌ Error fetching units:", error);
+      setUnits([]);
     }
   }, []);
 
-  // Fetch chapters from API
-  const fetchChapters = useCallback(async () => {
+  // Fetch chapters from API based on unit
+  const fetchChapters = useCallback(async (unitId) => {
+    if (!unitId) {
+      setChapters([]);
+      return;
+    }
     try {
-      const response = await api.get("/chapter");
+      // Fetch chapters for the selected unit
+      const response = await api.get(
+        `/chapter?unitId=${unitId}&status=all&limit=1000`
+      );
       if (response.data.success) {
-        setChapters(response.data.data);
+        setChapters(response.data.data || []);
+      } else {
+        setChapters([]);
       }
     } catch (error) {
       console.error("❌ Error fetching chapters:", error);
+      setChapters([]);
     }
   }, []);
 
-  // Fetch topics from API
-  const fetchTopics = useCallback(async () => {
+  // Fetch topics from API based on chapter
+  const fetchTopics = useCallback(async (chapterId) => {
+    if (!chapterId) {
+      setTopics([]);
+      return;
+    }
     try {
-      const response = await api.get("/topic");
+      // Fetch topics for the selected chapter
+      const response = await api.get(
+        `/topic?chapterId=${chapterId}&status=all&limit=1000`
+      );
       if (response.data.success) {
-        setTopics(response.data.data);
+        setTopics(response.data.data || []);
+      } else {
+        setTopics([]);
       }
     } catch (error) {
       console.error("❌ Error fetching topics:", error);
+      setTopics([]);
     }
   }, []);
 
@@ -147,149 +183,110 @@ const SubTopicsManagement = () => {
     fetchSubTopics();
     fetchExams();
     fetchSubjects();
-    fetchUnits();
-    fetchChapters();
-    fetchTopics();
-  }, [
-    fetchSubTopics,
-    fetchExams,
-    fetchSubjects,
-    fetchUnits,
-    fetchChapters,
-    fetchTopics,
-  ]);
+    // Don't fetch units, chapters, and topics on mount - will fetch when parent is selected
+  }, [fetchSubTopics, fetchExams, fetchSubjects]);
+
+  // Auto-clear error after 5 seconds with cleanup
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   // Filter subjects based on selected exam
   const filteredSubjects = useMemo(() => {
-    if (formData.examId && subjects) {
-      const filtered = subjects.filter(
-        (subject) =>
-          subject.examId._id === formData.examId ||
-          subject.examId === formData.examId
-      );
-      return filtered;
+    if (!formData.examId) {
+      return subjects || [];
     }
-    return subjects || [];
+    if (!subjects || subjects.length === 0) {
+      return [];
+    }
+    // Filter subjects by selected exam (handle both populated and non-populated examId)
+    return subjects.filter(
+      (subject) =>
+        subject.examId?._id === formData.examId ||
+        subject.examId === formData.examId
+    );
   }, [formData.examId, subjects]);
 
-  // Filter units based on selected subject
+  // Units are already filtered by API call, so return all units
   const filteredUnits = useMemo(() => {
-    if (formData.subjectId && units) {
-      const filtered = units.filter(
-        (unit) =>
-          unit.subjectId._id === formData.subjectId ||
-          unit.subjectId === formData.subjectId
-      );
-      return filtered;
-    }
+    // Units are already filtered by fetchUnits(examId, subjectId), so just return them
     return units || [];
-  }, [formData.subjectId, units]);
+  }, [units]);
 
-  // Filter chapters based on selected unit
+  // Chapters are already filtered by API call, so return all chapters
   const filteredChapters = useMemo(() => {
-    let result = [];
-    if (formData.unitId && chapters) {
-      result = chapters.filter(
-        (chapter) =>
-          chapter.unitId._id === formData.unitId ||
-          chapter.unitId === formData.unitId
-      );
-    } else {
-      result = chapters || [];
-    }
+    // Chapters are already filtered by fetchChapters(unitId), so just return them
     // Sort by orderNumber in ascending order
-    return result.sort((a, b) => {
+    const sorted = (chapters || []).sort((a, b) => {
       const ao = a.orderNumber || 0;
       const bo = b.orderNumber || 0;
       return ao - bo;
     });
-  }, [formData.unitId, chapters]);
+    return sorted;
+  }, [chapters]);
 
-  // Filter topics based on selected chapter
+  // Topics are already filtered by API call, so return all topics
   const filteredTopics = useMemo(() => {
-    let result = [];
-    if (formData.chapterId && topics) {
-      result = topics.filter(
-        (topic) =>
-          topic.chapterId._id === formData.chapterId ||
-          topic.chapterId === formData.chapterId
-      );
-    } else {
-      result = topics || [];
-    }
+    // Topics are already filtered by fetchTopics(chapterId), so just return them
     // Sort by orderNumber in ascending order
-    return result.sort((a, b) => {
+    const sorted = (topics || []).sort((a, b) => {
       const ao = a.orderNumber || 0;
       const bo = b.orderNumber || 0;
       return ao - bo;
     });
-  }, [formData.chapterId, topics]);
+    return sorted;
+  }, [topics]);
 
   // Filter subjects for edit form
   const filteredEditSubjects = useMemo(() => {
-    if (editFormData.examId && subjects) {
-      const filtered = subjects.filter(
-        (subject) =>
-          subject.examId._id === editFormData.examId ||
-          subject.examId === editFormData.examId
-      );
-      return filtered;
+    if (!editFormData.examId) {
+      return subjects || [];
     }
-    return subjects || [];
+    if (!subjects || subjects.length === 0) {
+      return [];
+    }
+    // Filter subjects by selected exam (handle both populated and non-populated examId)
+    return subjects.filter(
+      (subject) =>
+        subject.examId?._id === editFormData.examId ||
+        subject.examId === editFormData.examId
+    );
   }, [editFormData.examId, subjects]);
 
-  // Filter units for edit form
+  // Units for edit form are already filtered by API call, so return all units
   const filteredEditUnits = useMemo(() => {
-    if (editFormData.subjectId && units) {
-      const filtered = units.filter(
-        (unit) =>
-          unit.subjectId._id === editFormData.subjectId ||
-          unit.subjectId === editFormData.subjectId
-      );
-      return filtered;
-    }
+    // Units are already filtered by fetchUnits(examId, subjectId), so just return them
     return units || [];
-  }, [editFormData.subjectId, units]);
+  }, [units]);
 
-  // Filter chapters for edit form
+  // Chapters for edit form are already filtered by API call, so return all chapters
   const filteredEditChapters = useMemo(() => {
-    let result = [];
-    if (editFormData.unitId && chapters) {
-      result = chapters.filter(
-        (chapter) =>
-          chapter.unitId._id === editFormData.unitId ||
-          chapter.unitId === editFormData.unitId
-      );
-    } else {
-      result = chapters || [];
-    }
+    // Chapters are already filtered by fetchChapters(unitId), so just return them
     // Sort by orderNumber in ascending order
-    return result.sort((a, b) => {
+    const sorted = (chapters || []).sort((a, b) => {
       const ao = a.orderNumber || 0;
       const bo = b.orderNumber || 0;
       return ao - bo;
     });
-  }, [editFormData.unitId, chapters]);
+    return sorted;
+  }, [chapters]);
 
-  // Filter topics for edit form
+  // Topics for edit form are already filtered by API call, so return all topics
   const filteredEditTopics = useMemo(() => {
-    let result = [];
-    if (editFormData.chapterId && topics) {
-      result = topics.filter(
-        (topic) =>
-          topic.chapterId._id === editFormData.chapterId ||
-          topic.chapterId === editFormData.chapterId
-      );
-    } else {
-      result = topics || [];
-    }
+    // Topics are already filtered by fetchTopics(chapterId), so just return them
     // Sort by orderNumber in ascending order
-    return result.sort((a, b) => {
+    const sorted = (topics || []).sort((a, b) => {
       const ao = a.orderNumber || 0;
       const bo = b.orderNumber || 0;
       return ao - bo;
     });
-  }, [editFormData.chapterId, topics]);
+    return sorted;
+  }, [topics]);
 
   // Filter subjects based on selected exam for filters
   const filteredFilterSubjects = useMemo(() => {
@@ -300,30 +297,93 @@ const SubTopicsManagement = () => {
     );
   }, [subjects, filterExam]);
 
+  // Fetch units for filter section
+  const fetchUnitsForFilter = useCallback(async (examId, subjectId) => {
+    if (!examId || !subjectId) {
+      setFilterUnits([]);
+      return;
+    }
+    try {
+      const response = await api.get(
+        `/unit?examId=${examId}&subjectId=${subjectId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        setFilterUnits(response.data.data || []);
+      } else {
+        console.error("Failed to fetch filter units:", response.data.message);
+        setFilterUnits([]);
+      }
+    } catch (error) {
+      console.error("Error fetching filter units:", error);
+      setFilterUnits([]);
+    }
+  }, []);
+
+  // Fetch units for filter section when filterSubject changes
+  useEffect(() => {
+    if (filterSubject && filterExam) {
+      fetchUnitsForFilter(filterExam, filterSubject);
+    } else {
+      setFilterUnits([]);
+    }
+  }, [filterSubject, filterExam, fetchUnitsForFilter]);
+
   // Filter units based on selected subject for filters
   const filteredFilterUnits = useMemo(() => {
     if (!filterSubject) return [];
-    return units.filter(
+    return filterUnits.filter(
       (unit) =>
         unit.subjectId?._id === filterSubject ||
         unit.subjectId === filterSubject
     );
-  }, [units, filterSubject]);
+  }, [filterUnits, filterSubject]);
+
+  // Fetch chapters for filter section
+  const fetchChaptersForFilter = useCallback(async (unitId) => {
+    if (!unitId) {
+      setFilterChapters([]);
+      return;
+    }
+    try {
+      const response = await api.get(
+        `/chapter?unitId=${unitId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        const chaptersData = response.data.data || [];
+        // Sort by orderNumber in ascending order
+        const sorted = chaptersData.sort((a, b) => {
+          const ao = a.orderNumber || 0;
+          const bo = b.orderNumber || 0;
+          return ao - bo;
+        });
+        setFilterChapters(sorted);
+      } else {
+        console.error("Failed to fetch filter chapters:", response.data.message);
+        setFilterChapters([]);
+      }
+    } catch (error) {
+      console.error("Error fetching filter chapters:", error);
+      setFilterChapters([]);
+    }
+  }, []);
+
+  // Fetch chapters for filter section when filterUnit changes
+  useEffect(() => {
+    if (filterUnit) {
+      fetchChaptersForFilter(filterUnit);
+    } else {
+      setFilterChapters([]);
+    }
+  }, [filterUnit, fetchChaptersForFilter]);
 
   // Filter chapters based on selected unit for filters
   const filteredFilterChapters = useMemo(() => {
     if (!filterUnit) return [];
-    const filtered = chapters.filter(
+    return filterChapters.filter(
       (chapter) =>
         chapter.unitId?._id === filterUnit || chapter.unitId === filterUnit
     );
-    // Sort by orderNumber in ascending order
-    return filtered.sort((a, b) => {
-      const ao = a.orderNumber || 0;
-      const bo = b.orderNumber || 0;
-      return ao - bo;
-    });
-  }, [chapters, filterUnit]);
+  }, [filterChapters, filterUnit]);
 
   // Filter topics based on selected chapter for filters
   const filteredFilterTopics = useMemo(() => {
@@ -406,13 +466,124 @@ const SubTopicsManagement = () => {
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => {
+      const newData = { ...prev, [name]: value };
+      
+      // Reset subject when exam changes
+      if (name === "examId" && value !== prev.examId) {
+        newData.subjectId = "";
+        newData.unitId = "";
+        newData.chapterId = "";
+        newData.topicId = "";
+        setUnits([]); // Clear units when exam changes
+        setChapters([]); // Clear chapters when exam changes
+        setTopics([]); // Clear topics when exam changes
+      }
+      
+      // Reset unit when subject changes and fetch units for the selected exam and subject
+      if (name === "subjectId" && value !== prev.subjectId) {
+        newData.unitId = "";
+        newData.chapterId = "";
+        newData.topicId = "";
+        setChapters([]); // Clear chapters when subject changes
+        setTopics([]); // Clear topics when subject changes
+        // Fetch units for the selected exam and subject
+        if (newData.examId && value) {
+          fetchUnits(newData.examId, value);
+        } else {
+          setUnits([]);
+        }
+      }
+      
+      // Reset chapter when unit changes and fetch chapters for the selected unit
+      if (name === "unitId" && value !== prev.unitId) {
+        newData.chapterId = "";
+        newData.topicId = "";
+        setTopics([]); // Clear topics when unit changes
+        // Fetch chapters for the selected unit
+        if (value) {
+          fetchChapters(value);
+        } else {
+          setChapters([]);
+        }
+      }
+      
+      // Reset topic when chapter changes and fetch topics for the selected chapter
+      if (name === "chapterId" && value !== prev.chapterId) {
+        newData.topicId = "";
+        // Fetch topics for the selected chapter
+        if (value) {
+          fetchTopics(value);
+        } else {
+          setTopics([]);
+        }
+      }
+      
+      // Note: SubTopic clearing and order number calculation is handled by useEffect
+      // when topicId changes
+      
+      return newData;
+    });
     setFormError(null);
   };
 
   const handleEditFormChange = (e) => {
     const { name, value } = e.target;
-    setEditFormData((prev) => ({ ...prev, [name]: value }));
+    setEditFormData((prev) => {
+      const newData = { ...prev, [name]: value };
+      
+      // Reset subject when exam changes
+      if (name === "examId" && value !== prev.examId) {
+        newData.subjectId = "";
+        newData.unitId = "";
+        newData.chapterId = "";
+        newData.topicId = "";
+        setUnits([]); // Clear units when exam changes
+        setChapters([]); // Clear chapters when exam changes
+        setTopics([]); // Clear topics when exam changes
+      }
+      
+      // Reset unit when subject changes and fetch units for the selected exam and subject
+      if (name === "subjectId" && value !== prev.subjectId) {
+        newData.unitId = "";
+        newData.chapterId = "";
+        newData.topicId = "";
+        setChapters([]); // Clear chapters when subject changes
+        setTopics([]); // Clear topics when subject changes
+        // Fetch units for the selected exam and subject in edit form
+        if (newData.examId && value) {
+          fetchUnits(newData.examId, value);
+        } else {
+          setUnits([]);
+        }
+      }
+      
+      // Reset chapter when unit changes and fetch chapters for the selected unit
+      if (name === "unitId" && value !== prev.unitId) {
+        newData.chapterId = "";
+        newData.topicId = "";
+        setTopics([]); // Clear topics when unit changes
+        // Fetch chapters for the selected unit in edit form
+        if (value) {
+          fetchChapters(value);
+        } else {
+          setChapters([]);
+        }
+      }
+      
+      // Reset topic when chapter changes and fetch topics for the selected chapter
+      if (name === "chapterId" && value !== prev.chapterId) {
+        newData.topicId = "";
+        // Fetch topics for the selected chapter in edit form
+        if (value) {
+          fetchTopics(value);
+        } else {
+          setTopics([]);
+        }
+      }
+      
+      return newData;
+    });
     setFormError(null);
   };
 
@@ -428,7 +599,11 @@ const SubTopicsManagement = () => {
       orderNumber: "",
     });
     setAdditionalSubTopics([{ name: "", orderNumber: "" }]);
+    setNextOrderNumber(1);
     setFormError(null);
+    setUnits([]); // Clear units when form is cancelled
+    setChapters([]); // Clear chapters when form is cancelled
+    setTopics([]); // Clear topics when form is cancelled
   };
 
   const handleCancelEditForm = () => {
@@ -444,6 +619,9 @@ const SubTopicsManagement = () => {
       orderNumber: "",
     });
     setFormError(null);
+    setUnits([]); // Clear units when edit form is cancelled
+    setChapters([]); // Clear chapters when edit form is cancelled
+    setTopics([]); // Clear topics when edit form is cancelled
   };
 
   const handleOpenAddForm = () => {
@@ -458,16 +636,33 @@ const SubTopicsManagement = () => {
       orderNumber: "",
     });
     setAdditionalSubTopics([{ name: "", orderNumber: "" }]);
+    setNextOrderNumber(1);
     setFormError(null);
+    setUnits([]); // Clear units when opening new form
+    setChapters([]); // Clear chapters when opening new form
+    setTopics([]); // Clear topics when opening new form
   };
 
   const handleAddMoreSubTopics = () => {
-    setAdditionalSubTopics((prev) => [...prev, { name: "", orderNumber: "" }]);
+    setAdditionalSubTopics((prev) => {
+      const nextOrder = nextOrderNumber + prev.length;
+      return [...prev, { name: "", orderNumber: nextOrder.toString() }];
+    });
   };
 
   const handleRemoveSubTopic = (index) => {
     if (additionalSubTopics.length > 1) {
-      setAdditionalSubTopics((prev) => prev.filter((_, i) => i !== index));
+      setAdditionalSubTopics((prev) => {
+        const filtered = prev.filter((_, i) => i !== index);
+        // Recalculate order numbers after removal
+        if (nextOrderNumber > 0) {
+          return filtered.map((subTopic, i) => ({
+            ...subTopic,
+            orderNumber: (nextOrderNumber + i).toString(),
+          }));
+        }
+        return filtered;
+      });
     }
   };
 
@@ -479,10 +674,11 @@ const SubTopicsManagement = () => {
     );
   };
 
-  const getNextOrderNumber = async (topicId) => {
+  const getNextOrderNumber = useCallback(async (topicId) => {
+    if (!topicId) return 1;
     try {
-      const response = await api.get(`/subtopic?topicId=${topicId}`);
-      if (response.data.success) {
+      const response = await api.get(`/subtopic?topicId=${topicId}&status=all&limit=1000`);
+      if (response.data.success && response.data.data && response.data.data.length > 0) {
         const existingSubTopics = response.data.data;
         const maxOrder = existingSubTopics.reduce(
           (max, subTopic) => Math.max(max, subTopic.orderNumber || 0),
@@ -494,29 +690,53 @@ const SubTopicsManagement = () => {
       console.error("Error fetching next order number:", error);
     }
     return 1;
-  };
+  }, []);
 
   // Update order numbers when topic is selected
   useEffect(() => {
-    if (formData.topicId) {
+    if (formData.topicId && showAddForm) {
       getNextOrderNumber(formData.topicId).then((orderNumber) => {
         setNextOrderNumber(orderNumber);
         setFormData((prev) => ({
           ...prev,
           orderNumber: orderNumber.toString(),
         }));
-        setAdditionalSubTopics((prev) =>
-          prev.map((subTopic, index) => ({
-            ...subTopic,
-            orderNumber: (orderNumber + index).toString(),
-          }))
-        );
+        
+        // Always update sub topics - create first one if none exist, or update existing ones
+        setAdditionalSubTopics((prev) => {
+          if (prev.length === 0 || prev.some(st => !st.orderNumber || st.orderNumber === "")) {
+            // Create first sub topic with calculated order number
+            return [
+              {
+                name: "",
+                orderNumber: orderNumber.toString(),
+              },
+            ];
+          } else {
+            // Update order numbers for existing sub topics
+            return prev.map((subTopic, index) => ({
+              ...subTopic,
+              orderNumber: (orderNumber + index).toString(),
+            }));
+          }
+        });
       });
+    } else if (!formData.topicId && showAddForm) {
+      // Clear sub topics when topic is cleared
+      setAdditionalSubTopics([{ name: "", orderNumber: "" }]);
+      setNextOrderNumber(1);
     }
-  }, [formData.topicId]);
+  }, [formData.topicId, showAddForm, getNextOrderNumber]);
 
   const handleAddSubTopics = async (e) => {
     e.preventDefault();
+
+    // Check permissions
+    if (!canCreate) {
+      setFormError(getPermissionMessage("create", role));
+      return;
+    }
+
     setIsFormLoading(true);
     setFormError(null);
 
@@ -561,16 +781,42 @@ const SubTopicsManagement = () => {
   };
 
   const handleEditSubTopic = (subTopicToEdit) => {
+    // Check permissions
+    if (!canEdit) {
+      setFormError(getPermissionMessage("edit", role));
+      return;
+    }
+
+    const examId = subTopicToEdit.examId?._id || subTopicToEdit.examId;
+    const subjectId = subTopicToEdit.subjectId?._id || subTopicToEdit.subjectId;
+    const unitId = subTopicToEdit.unitId?._id || subTopicToEdit.unitId;
+    const chapterId = subTopicToEdit.chapterId?._id || subTopicToEdit.chapterId;
+    const topicId = subTopicToEdit.topicId?._id || subTopicToEdit.topicId;
+
     setEditingSubTopic(subTopicToEdit);
     setEditFormData({
       name: subTopicToEdit.name,
-      examId: subTopicToEdit.examId._id || subTopicToEdit.examId,
-      subjectId: subTopicToEdit.subjectId._id || subTopicToEdit.subjectId,
-      unitId: subTopicToEdit.unitId._id || subTopicToEdit.unitId,
-      chapterId: subTopicToEdit.chapterId._id || subTopicToEdit.chapterId,
-      topicId: subTopicToEdit.topicId._id || subTopicToEdit.topicId,
-      orderNumber: subTopicToEdit.orderNumber,
+      examId: examId,
+      subjectId: subjectId,
+      unitId: unitId,
+      chapterId: chapterId,
+      topicId: topicId,
+      orderNumber: subTopicToEdit.orderNumber?.toString() || "",
     });
+    
+    // Fetch units, chapters, and topics for the selected exam, subject, unit, and chapter when editing
+    if (examId && subjectId) {
+      fetchUnits(examId, subjectId).then(() => {
+        if (unitId) {
+          fetchChapters(unitId).then(() => {
+            if (chapterId) {
+              fetchTopics(chapterId);
+            }
+          });
+        }
+      });
+    }
+    
     setShowEditForm(true);
   };
 
@@ -587,7 +833,9 @@ const SubTopicsManagement = () => {
         unitId: editFormData.unitId,
         chapterId: editFormData.chapterId,
         topicId: editFormData.topicId,
-        orderNumber: parseInt(editFormData.orderNumber),
+        orderNumber: editFormData.orderNumber && editFormData.orderNumber.trim()
+          ? parseInt(editFormData.orderNumber)
+          : undefined,
       });
 
       if (response.data.success) {
@@ -616,6 +864,12 @@ const SubTopicsManagement = () => {
   };
 
   const handleDeleteSubTopic = async (subTopicToDelete) => {
+    // Check permissions
+    if (!canDelete) {
+      setFormError(getPermissionMessage("delete", role));
+      return;
+    }
+
     if (
       !window.confirm(
         `Are you sure you want to delete "${subTopicToDelete.name}"?`
@@ -697,6 +951,12 @@ const SubTopicsManagement = () => {
   };
 
   const handleDragEnd = async (result) => {
+    // Check permissions
+    if (!canReorder) {
+      setFormError(getPermissionMessage("reorder", role));
+      return;
+    }
+
     if (!result.destination) return;
 
     const sourceIndex = result.source.index;
@@ -704,37 +964,68 @@ const SubTopicsManagement = () => {
 
     if (sourceIndex === destinationIndex) return;
 
-    const reorderedItem = filteredSubTopics[sourceIndex];
+    const items = Array.from(subTopics);
+    const reorderedItem = items[sourceIndex];
+    
+    // Get the topic ID to identify the group
+    const topicId = reorderedItem.topicId?._id || reorderedItem.topicId;
 
-    // Optimistic UI update - work with filtered list but update full list
-    const filtered = [...filteredSubTopics];
-    const [removed] = filtered.splice(sourceIndex, 1);
-    filtered.splice(destinationIndex, 0, removed);
+    // Find all subTopics in the same group (same topic)
+    const groupSubTopics = items.filter((subTopic) => {
+      const subTopicTopicId = subTopic.topicId?._id || subTopic.topicId;
+      return subTopicTopicId === topicId;
+    });
 
-    // Update order numbers based on filtered list
-    const updatedSubTopics = filtered.map((subTopic, index) => ({
-      id: subTopic._id,
+    // Find indices within the group
+    const groupSourceIndex = groupSubTopics.findIndex(
+      (st) => (st._id || st.id) === (reorderedItem._id || reorderedItem.id)
+    );
+    
+    // Create a reordered group array
+    const reorderedGroup = Array.from(groupSubTopics);
+    const [movedSubTopic] = reorderedGroup.splice(groupSourceIndex, 1);
+    
+    // Calculate destination index within the group
+    const groupDestIndex = groupSubTopics.findIndex((subTopic, idx) => {
+      if (idx === groupSourceIndex) return false;
+      const flatIndex = items.findIndex(
+        (st) => (st._id || st.id) === (subTopic._id || subTopic.id)
+      );
+      return flatIndex >= destinationIndex;
+    });
+    const finalDestIndex = groupDestIndex === -1 ? reorderedGroup.length : groupDestIndex;
+    reorderedGroup.splice(finalDestIndex, 0, movedSubTopic);
+
+    // Update order numbers only for subTopics in this group
+    const updatedGroupSubTopics = reorderedGroup.map((subTopic, index) => ({
+      ...subTopic,
       orderNumber: index + 1,
     }));
 
-    // Update the full subTopics list
-    const updatedFullList = subTopics.map((st) => {
-      const updatedItem = updatedSubTopics.find((u) => u.id === st._id);
-      return updatedItem ? { ...st, orderNumber: updatedItem.orderNumber } : st;
+    // Update the full subTopics array, preserving other subTopics
+    const updatedItems = items.map((subTopic) => {
+      const updatedSubTopic = updatedGroupSubTopics.find(
+        (st) => (st._id || st.id) === (subTopic._id || subTopic.id)
+      );
+      return updatedSubTopic || subTopic;
     });
 
-    setSubTopics(updatedFullList);
+    setSubTopics(updatedItems);
 
     try {
+      // Prepare subTopics data for the reorder endpoint
+      const subTopicsData = updatedGroupSubTopics.map((subTopic) => ({
+        id: subTopic._id,
+        orderNumber: subTopic.orderNumber,
+      }));
+
       const response = await api.patch("/subtopic/reorder", {
-        subTopics: updatedSubTopics,
+        subTopics: subTopicsData,
       });
 
       if (response.data.success) {
         console.log(
-          `✅ Sub Topic "${reorderedItem.name}" moved to position ${
-            destinationIndex + 1
-          }`
+          `✅ Sub Topic "${reorderedItem.name}" moved to position ${finalDestIndex + 1}`
         );
       } else {
         throw new Error(
@@ -750,7 +1041,6 @@ const SubTopicsManagement = () => {
           error.response?.data?.message || error.message
         }`
       );
-      setTimeout(() => setError(null), 5000); // Clear error after 5 seconds
     }
   };
 
@@ -785,24 +1075,34 @@ const SubTopicsManagement = () => {
         )}
 
         {/* Header Section */}
-        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-2xl shadow-lg border border-gray-200/50 p-4 sm:p-4">
+        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-lg border border-gray-200 p-6 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-xl sm:text-2xl lg:text-2xl font-bold text-gray-900 mb-2">
+              <h1 className="text-2xl font-semibold text-gray-900 mb-2">
                 Sub Topics Management
               </h1>
-              <p className="text-gray-600 text-xs">
-                Manage and organize your sub topics, create new sub topics, and
-                track sub topic performance across your educational platform.
+              <p className="text-sm text-gray-600">
+                Manage and organize your sub topics, create new sub topics, and track sub topic performance across your educational platform.
               </p>
             </div>
-            <button
-              onClick={handleOpenAddForm}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
-            >
-              <FaPlus className="w-4 h-4" />
-              Add New Sub Topic
-            </button>
+            {canCreate ? (
+              <button
+                onClick={handleOpenAddForm}
+                className="px-4 py-2 bg-[#0056FF] hover:bg-[#0044CC] text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <FaPlus className="w-4 h-4" />
+                Add New Sub Topic
+              </button>
+            ) : (
+              <button
+                disabled
+                title={getPermissionMessage("create", role)}
+                className="px-4 py-2 bg-gray-300 text-gray-500 rounded-lg text-sm font-medium cursor-not-allowed flex items-center gap-2"
+              >
+                <FaLock className="w-4 h-4" />
+                Add New Sub Topic
+              </button>
+            )}
           </div>
         </div>
 
@@ -1224,27 +1524,31 @@ const SubTopicsManagement = () => {
         )}
 
         {/* Sub Topics Table */}
-        <div className="bg-white/80 p-4 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200/50 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
-            <h2 className="text-base sm:text-lg font-bold text-gray-900">
-              Sub Topics List
-            </h2>
-            <p className="text-xs text-gray-600 mt-1">
-              Manage your sub topics, view details, and perform actions. You can
-              drag to reorder sub topics.
-            </p>
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900">
+                  Sub Topics List
+                </h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  Manage your sub topics, view details, and perform actions. You can
+                  drag to reorder sub topics.
+                </p>
+              </div>
+            </div>
           </div>
 
           {/* Filter Button */}
-          <div className="px-4 py-3 border-b border-gray-200">
+          <div className="px-6 py-3 border-b border-gray-200">
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
             >
               <FaFilter className="w-4 h-4" />
               Filter Sub Topics
               {activeFilterCount > 0 && (
-                <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-bold">
+                <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-medium">
                   {activeFilterCount}
                 </span>
               )}
@@ -1253,7 +1557,7 @@ const SubTopicsManagement = () => {
 
           {/* Filter Section */}
           {showFilters && (
-            <div className="px-4 py-4 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200 animate-fadeIn">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
                 {/* Filter by Exam */}
                 <div className="space-y-2">
@@ -1426,7 +1730,7 @@ const SubTopicsManagement = () => {
                   {filterUnit && (
                     <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
                       Unit:{" "}
-                      {units.find((u) => u._id === filterUnit)?.name || "N/A"}
+                      {filterUnits.find((u) => u._id === filterUnit)?.name || "N/A"}
                       <button
                         onClick={() => {
                           setFilterUnit("");
@@ -1442,7 +1746,7 @@ const SubTopicsManagement = () => {
                   {filterChapter && (
                     <span className="inline-flex items-center gap-1 px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">
                       Chapter:{" "}
-                      {chapters.find((c) => c._id === filterChapter)?.name ||
+                      {filterChapters.find((c) => c._id === filterChapter)?.name ||
                         "N/A"}
                       <button
                         onClick={() => {
@@ -1478,7 +1782,7 @@ const SubTopicsManagement = () => {
             </div>
           )}
 
-          <div className="p-4">
+          <div className="p-6">
             <SubTopicsTable
               subTopics={filteredSubTopics}
               onEdit={handleEditSubTopic}

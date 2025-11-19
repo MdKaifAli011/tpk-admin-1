@@ -2,26 +2,92 @@ import { NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Subject from "@/models/Subject";
 import mongoose from "mongoose";
+import { parsePagination, createPaginationResponse } from "@/utils/pagination";
+import { successResponse, errorResponse, handleApiError } from "@/utils/apiResponse";
+import { STATUS, ERROR_MESSAGES } from "@/constants";
 
-// ---------- GET ALL SUBJECTS ----------
-export async function GET() {
+// Cache for frequently accessed queries
+export const queryCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 50; // Maximum cache entries
+
+// Helper function to cleanup cache (LRU + expired entries)
+function cleanupCache() {
+  const now = Date.now();
+  
+  // First, remove expired entries
+  for (const [key, value] of queryCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL) {
+      queryCache.delete(key);
+    }
+  }
+  
+  // If still over limit, remove oldest entries (LRU)
+  if (queryCache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(queryCache.entries());
+    entries.sort((a, b) => a[1].timestamp - b[1].timestamp);
+    const toDelete = entries.slice(0, entries.length - MAX_CACHE_SIZE);
+    toDelete.forEach(([key]) => queryCache.delete(key));
+  }
+}
+
+// ---------- GET ALL SUBJECTS (optimized) ----------
+export async function GET(request) {
   try {
     await connectDB();
-    const subjects = await Subject.find()
-      .populate("examId", "name status")
-      .sort({ examId: 1, orderNumber: 1, createdAt: -1 });
+    const { searchParams } = new URL(request.url);
+    
+    // Parse pagination
+    const { page, limit, skip } = parsePagination(searchParams);
+    
+    // Get filters (normalize status to lowercase for case-insensitive matching)
+    const examId = searchParams.get("examId");
+    const statusFilterParam = searchParams.get("status") || STATUS.ACTIVE;
+    const statusFilter = statusFilterParam.toLowerCase();
+    
+    // Build query with case-insensitive status matching
+    const query = {};
+    if (examId && mongoose.Types.ObjectId.isValid(examId)) {
+      query.examId = examId;
+    }
+    if (statusFilter !== "all") {
+      query.status = { $regex: new RegExp(`^${statusFilter}$`, "i") };
+    }
+    
+    // Create cache key
+    const cacheKey = `subjects-${JSON.stringify(query)}-${page}-${limit}`;
+    const now = Date.now();
 
-    return NextResponse.json({
-      success: true,
-      count: subjects.length,
-      data: subjects,
-    });
+    // Check cache (only for active status)
+    const cached = queryCache.get(cacheKey);
+    if (cached && statusFilter === STATUS.ACTIVE && (now - cached.timestamp < CACHE_TTL)) {
+      return NextResponse.json(cached.data);
+    }
+
+    // Optimize query execution
+    const shouldCount = page === 1 || limit < 100;
+    const [total, subjects] = await Promise.all([
+      shouldCount ? Subject.countDocuments(query) : Promise.resolve(0),
+      Subject.find(query)
+        .populate("examId", "name status")
+        .sort({ orderNumber: 1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean()
+        .exec(),
+    ]);
+
+    const response = createPaginationResponse(subjects, total, page, limit);
+
+    // Cache the response (only for active status)
+    if (statusFilter === STATUS.ACTIVE) {
+      queryCache.set(cacheKey, { data: response, timestamp: now });
+      cleanupCache();
+    }
+
+    return NextResponse.json(response);
   } catch (error) {
-    console.error("❌ Error fetching subjects:", error);
-    return NextResponse.json(
-      { success: false, message: "Failed to fetch subjects" },
-      { status: 500 }
-    );
+    return handleApiError(error, ERROR_MESSAGES.FETCH_FAILED);
   }
 }
 
@@ -30,32 +96,23 @@ export async function POST(request) {
   try {
     await connectDB();
     const body = await request.json();
-    const { name, examId, orderNumber } = body;
+    const { name, examId, orderNumber, status } = body;
 
     // Validate required fields
     if (!name || !examId) {
-      return NextResponse.json(
-        { success: false, message: "Name and examId are required" },
-        { status: 400 }
-      );
+      return errorResponse("Name and examId are required", 400);
     }
 
     // Validate examId format
     if (!mongoose.Types.ObjectId.isValid(examId)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid examId format" },
-        { status: 400 }
-      );
+      return errorResponse("Invalid examId format", 400);
     }
 
     // Check if exam exists
     const Exam = (await import("@/models/Exam")).default;
     const examExists = await Exam.findById(examId);
     if (!examExists) {
-      return NextResponse.json(
-        { success: false, message: "Exam not found" },
-        { status: 404 }
-      );
+      return errorResponse(ERROR_MESSAGES.EXAM_NOT_FOUND, 404);
     }
 
     // Capitalize first letter of each word in subject name
@@ -67,65 +124,35 @@ export async function POST(request) {
       examId,
     });
     if (existingSubject) {
-      return NextResponse.json(
-        {
-          success: false,
-          message: "Subject with this name already exists for this exam",
-        },
-        { status: 409 }
-      );
+      return errorResponse("Subject with this name already exists for this exam", 409);
     }
 
-    // Determine orderNumber: if provided, use it; otherwise assign next available within this exam
+    // Determine orderNumber
     let finalOrderNumber = orderNumber;
     if (finalOrderNumber === undefined || finalOrderNumber === null) {
-      const maxOrderDoc = await Subject.find({
-        examId,
-        orderNumber: { $exists: true },
-      })
+      const maxOrderDoc = await Subject.findOne({ examId })
         .sort({ orderNumber: -1 })
-        .limit(1);
-      finalOrderNumber =
-        maxOrderDoc.length > 0 ? (maxOrderDoc[0].orderNumber || 0) + 1 : 1;
+        .select("orderNumber")
+        .lean();
+      finalOrderNumber = maxOrderDoc ? (maxOrderDoc.orderNumber || 0) + 1 : 1;
     }
 
-    // Create new subject
+    // Create new subject (content/SEO fields are now in SubjectDetails)
     const subject = await Subject.create({
       name: subjectName,
       examId,
       orderNumber: finalOrderNumber,
+      status: status || STATUS.ACTIVE,
     });
 
     // Populate the exam data before returning
-    const populatedSubject = await Subject.findById(subject._id).populate(
-      "examId",
-      "name status"
-    );
+    const populatedSubject = await Subject.findById(subject._id)
+      .populate("examId", "name status")
+      .lean();
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: `Subject created successfully with order number ${finalOrderNumber}`,
-        data: populatedSubject,
-        orderNumber: finalOrderNumber,
-      },
-      { status: 201 }
-    );
+    return successResponse(populatedSubject, "Subject created successfully", 201);
   } catch (error) {
-    console.error("❌ Error creating subject:", error);
-
-    // Handle Mongoose validation errors
-    if (error.name === "ValidationError") {
-      return NextResponse.json(
-        { success: false, message: "Validation error", errors: error.errors },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json(
-      { success: false, message: "Failed to create subject" },
-      { status: 500 }
-    );
+    return handleApiError(error, ERROR_MESSAGES.SAVE_FAILED);
   }
 }
 

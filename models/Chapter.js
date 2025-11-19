@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { createSlug, generateUniqueSlug } from "../utils/serverSlug.js";
 
 const chapterSchema = new mongoose.Schema(
   {
@@ -7,10 +8,29 @@ const chapterSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    slug: {
+      type: String,
+      trim: true,
+    },
     orderNumber: {
       type: Number,
       required: true,
       min: 1,
+    },
+    weightage: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    time: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    questions: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     examId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -32,31 +52,39 @@ const chapterSchema = new mongoose.Schema(
       enum: ["active", "inactive"],
       default: "active",
     },
-    content: {
-      type: String,
-      default: "",
-    },
-    title: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    metaDescription: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    keywords: {
-      type: String,
-      trim: true,
-      default: "",
-    },
   },
   { timestamps: true }
 );
 
 // Add compound index to ensure unique orderNumber per unit within an exam
 chapterSchema.index({ unitId: 1, orderNumber: 1 }, { unique: true });
+
+// Compound index for unique slug per unit
+chapterSchema.index({ unitId: 1, slug: 1 }, { unique: true, sparse: true });
+
+// Pre-save hook to auto-generate slug
+chapterSchema.pre("save", async function (next) {
+  if (this.isModified("name") || this.isNew) {
+    const baseSlug = createSlug(this.name);
+    
+    // Check if slug exists within the same unit (excluding current document for updates)
+    const checkExists = async (slug, excludeId) => {
+      const query = { unitId: this.unitId, slug };
+      if (excludeId) {
+        query._id = { $ne: excludeId };
+      }
+      const existing = await mongoose.models.Chapter.findOne(query);
+      return !!existing;
+    };
+    
+    this.slug = await generateUniqueSlug(
+      baseSlug,
+      checkExists,
+      this._id || null
+    );
+  }
+  next();
+});
 
 // Cascading delete: When a Chapter is deleted, delete all related Topics and SubTopics
 chapterSchema.pre("findOneAndDelete", async function () {
@@ -70,6 +98,13 @@ chapterSchema.pre("findOneAndDelete", async function () {
       // Get models - use mongoose.model() to ensure models are loaded
       const Topic = mongoose.models.Topic || mongoose.model("Topic");
       const SubTopic = mongoose.models.SubTopic || mongoose.model("SubTopic");
+      const ChapterDetails = mongoose.models.ChapterDetails || mongoose.model("ChapterDetails");
+
+      // Delete chapter details first
+      const chapterDetailsResult = await ChapterDetails.deleteMany({ chapterId: chapter._id });
+      console.log(
+        `🗑️ Cascading delete: Deleted ${chapterDetailsResult.deletedCount} ChapterDetails for chapter ${chapter._id}`
+      );
 
       // Find all topics in this chapter
       const topics = await Topic.find({ chapterId: chapter._id });

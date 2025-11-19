@@ -13,11 +13,14 @@ import {
   FaExclamationTriangle,
   FaClipboardList,
   FaFilter,
+  FaLock,
 } from "react-icons/fa";
 import { ToastContainer, useToast } from "../ui/Toast";
 import api from "@/lib/api";
+import { usePermissions, getPermissionMessage } from "../../hooks/usePermissions";
 
 const SubjectManagement = () => {
+  const { canCreate, canEdit, canDelete, canReorder, role } = usePermissions();
   const [showAddForm, setShowAddForm] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [isFormLoading, setIsFormLoading] = useState(false);
@@ -27,6 +30,7 @@ const SubjectManagement = () => {
   const [formData, setFormData] = useState({
     name: "",
     examId: "",
+    orderNumber: "",
   });
   const [formError, setFormError] = useState(null);
   const [editingSubject, setEditingSubject] = useState(null);
@@ -42,7 +46,8 @@ const SubjectManagement = () => {
     try {
       setIsDataLoading(true);
       setError(null);
-      const response = await api.get("/subject");
+      // Fetch all subjects (active and inactive) to show correct status
+      const response = await api.get("/subject?status=all");
 
       if (response.data?.success) {
         setSubjects(response.data.data || []);
@@ -65,7 +70,8 @@ const SubjectManagement = () => {
   // ✅ Fetch Exams (for dropdown) using Axios
   const fetchExams = async () => {
     try {
-      const response = await api.get("/exam");
+      // Fetch all exams (active and inactive) for dropdown
+      const response = await api.get("/exam?status=all");
 
       if (response.data?.success) {
         setExams(response.data.data || []);
@@ -81,6 +87,22 @@ const SubjectManagement = () => {
     fetchSubjects();
     fetchExams();
   }, []);
+
+  // Calculate next order number when exam is selected
+  useEffect(() => {
+    if (showAddForm && formData.examId && !editingSubject) {
+      const subjectsInExam = subjects.filter(
+        (s) => (s.examId?._id || s.examId) === formData.examId
+      );
+      const maxOrder = subjectsInExam.length > 0
+        ? Math.max(...subjectsInExam.map(s => s.orderNumber || 0))
+        : 0;
+      setFormData(prev => ({
+        ...prev,
+        orderNumber: (maxOrder + 1).toString(),
+      }));
+    }
+  }, [formData.examId, showAddForm, editingSubject, subjects]);
 
   // Filter subjects based on selected exam
   const filteredSubjects = useMemo(() => {
@@ -113,6 +135,12 @@ const SubjectManagement = () => {
   const handleAddSubject = async (e) => {
     e.preventDefault();
 
+    // Check permissions
+    if (!canCreate) {
+      showError(getPermissionMessage("create", role));
+      return;
+    }
+
     if (!formData.name.trim() || !formData.examId) {
       setFormError("Please fill in all required fields.");
       return;
@@ -121,14 +149,25 @@ const SubjectManagement = () => {
     try {
       setIsFormLoading(true);
       setFormError(null);
-      const response = await api.post("/subject", formData);
+      const payload = {
+        name: formData.name.trim(),
+        examId: formData.examId,
+      };
+      
+      // Add orderNumber if provided
+      if (formData.orderNumber && formData.orderNumber.trim()) {
+        payload.orderNumber = parseInt(formData.orderNumber);
+      }
+
+      const response = await api.post("/subject", payload);
 
       if (response.data?.success) {
         // Add the new subject with populated exam data
         setSubjects((prev) => [...prev, response.data.data]);
         success(`Subject "${formData.name}" added successfully!`);
         // Reset form
-        setFormData({ name: "", examId: "" });
+        setFormData({ name: "", examId: "", orderNumber: "" });
+        setEditingSubject(null);
         setShowAddForm(false);
       } else {
         setFormError(response.data?.message || "Failed to add subject");
@@ -146,51 +185,92 @@ const SubjectManagement = () => {
   };
 
   const handleCancelForm = () => {
-    setFormData({ name: "", examId: "" });
+    setFormData({ name: "", examId: "", orderNumber: "" });
     setFormError(null);
+    setEditingSubject(null);
     setShowAddForm(false);
   };
 
   // ✅ Handle Edit Subject
-  const handleEditSubject = async (subjectToEdit) => {
-    const newName = prompt("Enter new subject name:", subjectToEdit.name);
-    if (newName && newName.trim() !== subjectToEdit.name) {
-      try {
-        setIsFormLoading(true);
-        setError(null);
+  const handleEditSubject = (subjectToEdit) => {
+    // Check permissions
+    if (!canEdit) {
+      showError(getPermissionMessage("edit", role));
+      return;
+    }
+    setEditingSubject(subjectToEdit);
+    setFormData({
+      name: subjectToEdit.name || "",
+      examId: subjectToEdit.examId?._id || subjectToEdit.examId || "",
+      orderNumber: subjectToEdit.orderNumber?.toString() || "",
+    });
+    setShowAddForm(true);
+    setFormError(null);
+  };
 
-        const response = await api.put(`/subject/${subjectToEdit._id}`, {
-          name: newName.trim(),
-          examId: subjectToEdit.examId._id || subjectToEdit.examId,
-        });
+  // ✅ Handle Update Subject
+  const handleUpdateSubject = async (e) => {
+    e.preventDefault();
 
-        if (response.data?.success) {
-          setSubjects((prev) =>
-            prev.map((s) =>
-              s._id === subjectToEdit._id ? response.data.data : s
-            )
-          );
-          success("Subject updated successfully!");
-        } else {
-          setError(response.data?.message || "Failed to update subject");
-          showError(response.data?.message || "Failed to update subject");
-        }
-      } catch (err) {
-        console.error("❌ Error updating subject:", err);
-        const errorMessage =
-          err?.response?.data?.message ||
-          err?.message ||
-          "Failed to update subject";
-        setError(errorMessage);
-        showError(errorMessage);
-      } finally {
-        setIsFormLoading(false);
+    // Check permissions
+    if (!canEdit) {
+      showError(getPermissionMessage("edit", role));
+      return;
+    }
+
+    if (!formData.name.trim() || !formData.examId) {
+      setFormError("Please fill in all required fields.");
+      return;
+    }
+
+    try {
+      setIsFormLoading(true);
+      setFormError(null);
+
+      const payload = {
+        name: formData.name.trim(),
+        examId: formData.examId,
+      };
+      
+      // Add orderNumber if provided
+      if (formData.orderNumber && formData.orderNumber.trim()) {
+        payload.orderNumber = parseInt(formData.orderNumber);
       }
+
+      const response = await api.put(`/subject/${editingSubject._id}`, payload);
+
+      if (response.data?.success) {
+        setSubjects((prev) =>
+          prev.map((s) =>
+            s._id === editingSubject._id ? response.data.data : s
+          )
+        );
+        success("Subject updated successfully!");
+        handleCancelForm();
+      } else {
+        setFormError(response.data?.message || "Failed to update subject");
+        showError(response.data?.message || "Failed to update subject");
+      }
+    } catch (err) {
+      console.error("❌ Error updating subject:", err);
+      const errorMessage =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to update subject";
+      setFormError(errorMessage);
+      showError(errorMessage);
+    } finally {
+      setIsFormLoading(false);
     }
   };
 
   // ✅ Handle Delete Subject using Axios
   const handleDeleteSubject = async (subjectToDelete) => {
+    // Check permissions
+    if (!canDelete) {
+      showError(getPermissionMessage("delete", role));
+      return;
+    }
     if (
       !window.confirm(
         `Are you sure you want to delete "${subjectToDelete.name}"?`
@@ -245,12 +325,8 @@ const SubjectManagement = () => {
         });
 
         if (response.data.success) {
-          // Update the subject status in the list
-          setSubjects((prev) =>
-            prev.map((s) =>
-              s._id === subject._id ? { ...s, status: newStatus } : s
-            )
-          );
+          // Refetch subjects to get updated status from database
+          await fetchSubjects();
           success(
             `Subject "${subject.name}" and all children ${action}d successfully!`
           );
@@ -276,52 +352,57 @@ const SubjectManagement = () => {
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       <div className="space-y-6">
         {/* Header Section */}
-        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-2xl shadow-lg border border-gray-200/50 p-4 sm:p-4">
+        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 rounded-lg border border-gray-200 p-6 shadow-sm">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-xl sm:text-2xl lg:text-2xl font-bold text-gray-900 mb-2">
+              <h1 className="text-2xl font-semibold text-gray-900 mb-2">
                 Subject Management
               </h1>
-              <p className="text-gray-600 text-xs">
-                Manage and organize your subjects, create new ones, and track
-                performance across your educational platform.
+              <p className="text-sm text-gray-600">
+                Manage and organize your subjects, create new ones, and track performance across your educational platform.
               </p>
             </div>
-            <button
-              onClick={() => setShowAddForm(true)}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
-            >
-              <FaPlus className="w-4 h-4" />
-              <span className="text-xs">Add New Subject</span>
-            </button>
+            {canCreate ? (
+              <button
+                onClick={() => setShowAddForm(true)}
+                className="px-4 py-2 bg-[#0056FF] hover:bg-[#0044CC] text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <FaPlus className="w-4 h-4" />
+                <span>Add New Subject</span>
+              </button>
+            ) : (
+              <button
+                disabled
+                title={getPermissionMessage("create", role)}
+                className="px-4 py-2 bg-gray-300 text-gray-500 rounded-lg text-sm font-medium cursor-not-allowed flex items-center gap-2"
+              >
+                <FaLock className="w-4 h-4" />
+                <span>Add New Subject</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Add Subject Form */}
+        {/* Add/Edit Subject Form */}
         {showAddForm && (
-          <div className="bg-white/90 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200/50 p-6 animate-fadeIn">
+          <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
             <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 rounded-lg">
-                  <FaPlus className="w-5 h-5 text-blue-600" />
-                </div>
-                <h2 className="text-lg font-bold text-gray-900">
-                  Add New Subject
-                </h2>
-              </div>
+              <h2 className="text-xl font-semibold text-gray-900">
+                {editingSubject ? "Edit Subject" : "Add New Subject"}
+              </h2>
               <button
                 onClick={handleCancelForm}
-                className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-all duration-200"
+                className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-lg transition-colors"
                 disabled={isFormLoading}
               >
-                <FaTimes className="w-5 h-5" />
+                <FaTimes className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAddSubject} className="space-y-6">
+            <form onSubmit={editingSubject ? handleUpdateSubject : handleAddSubject} className="space-y-4">
               {/* Form Error Display */}
               {formError && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-4 animate-fadeIn">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                     <p className="text-sm font-medium text-red-800">
@@ -331,12 +412,12 @@ const SubjectManagement = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Subject Name */}
                 <div className="space-y-2">
                   <label
                     htmlFor="name"
-                    className="block text-sm font-semibold text-gray-700"
+                    className="block text-sm font-medium text-gray-700"
                   >
                     Subject Name <span className="text-red-500">*</span>
                   </label>
@@ -347,7 +428,7 @@ const SubjectManagement = () => {
                     value={formData.name}
                     onChange={handleFormChange}
                     placeholder="Enter subject name (e.g., Mathematics)"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 hover:border-gray-400"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm placeholder-gray-400 transition-all"
                     required
                     disabled={isFormLoading}
                   />
@@ -357,7 +438,7 @@ const SubjectManagement = () => {
                 <div className="space-y-2">
                   <label
                     htmlFor="examId"
-                    className="block text-sm font-semibold text-gray-700"
+                    className="block text-sm font-medium text-gray-700"
                   >
                     Exam <span className="text-red-500">*</span>
                   </label>
@@ -366,9 +447,9 @@ const SubjectManagement = () => {
                     name="examId"
                     value={formData.examId}
                     onChange={handleFormChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm hover:border-gray-400"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-all"
                     required
-                    disabled={isFormLoading}
+                    disabled={isFormLoading || editingSubject}
                   >
                     <option value="">Select an exam</option>
                     {exams.map((exam) => (
@@ -378,32 +459,53 @@ const SubjectManagement = () => {
                     ))}
                   </select>
                 </div>
+
+                {/* Order Number */}
+                <div className="space-y-2">
+                  <label
+                    htmlFor="orderNumber"
+                    className="block text-sm font-medium text-gray-700"
+                  >
+                    Order Number
+                  </label>
+                  <input
+                    type="number"
+                    id="orderNumber"
+                    name="orderNumber"
+                    value={formData.orderNumber}
+                    onChange={handleFormChange}
+                    placeholder="Auto-calculated"
+                    min="1"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm placeholder-gray-400 transition-all"
+                    disabled={isFormLoading}
+                  />
+                </div>
               </div>
 
               {/* Form Actions */}
-              <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-gray-200">
+              <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-gray-200">
                 <button
                   type="button"
                   onClick={handleCancelForm}
-                  className="flex-1 px-5 py-3 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl text-sm font-semibold transition-all duration-200 hover:scale-105 active:scale-95"
+                  className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
                   disabled={isFormLoading}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-5 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl text-sm font-semibold hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 hover:scale-105 active:scale-95"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   disabled={isFormLoading}
                 >
                   {isFormLoading ? (
                     <>
                       <LoadingSpinner size="small" />
-                      <span>Adding Subject...</span>
+                      <span>{editingSubject ? "Updating..." : "Adding Subject..."}</span>
                     </>
                   ) : (
                     <>
                       <FaSave className="w-4 h-4" />
-                      <span>Add Subject</span>
+                      <span>{editingSubject ? "Update Subject" : "Add Subject"}</span>
                     </>
                   )}
                 </button>
@@ -413,46 +515,30 @@ const SubjectManagement = () => {
         )}
 
         {/* Subjects Table */}
-        <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg border border-gray-200/50 overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-base sm:text-lg font-bold text-gray-900">
+                <h2 className="text-xl font-semibold text-gray-900">
                   Subjects List
                 </h2>
-                <p className="text-xs text-gray-600 mt-1">
+                <p className="text-sm text-gray-600 mt-1">
                   Manage your subjects, view details, and perform actions
                 </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs text-gray-500">
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                  />
-                </svg>
-                Last updated: {new Date().toLocaleTimeString()}
               </div>
             </div>
           </div>
 
           {/* Filter Button */}
-          <div className="px-4 py-3 border-b border-gray-200">
+          <div className="px-6 py-3 border-b border-gray-200">
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 hover:shadow-lg hover:scale-105 active:scale-95 flex items-center gap-2"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
             >
               <FaFilter className="w-4 h-4" />
               Filter Subjects
               {activeFilterCount > 0 && (
-                <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-bold">
+                <span className="bg-white text-blue-600 px-2 py-0.5 rounded-full text-xs font-medium">
                   {activeFilterCount}
                 </span>
               )}
@@ -461,17 +547,17 @@ const SubjectManagement = () => {
 
           {/* Filter Section */}
           {showFilters && (
-            <div className="px-4 py-4 bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200 animate-fadeIn">
+            <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 {/* Filter by Exam */}
                 <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700">
                     Filter by Exam
                   </label>
                   <select
                     value={filterExam}
                     onChange={(e) => setFilterExam(e.target.value)}
-                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm bg-white"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-all"
                   >
                     <option value="">All Exams</option>
                     {exams.map((exam) => (
@@ -486,11 +572,11 @@ const SubjectManagement = () => {
               {/* Active Filters */}
               {activeFilterCount > 0 && (
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-200">
-                  <span className="text-xs font-semibold text-gray-600">
+                  <span className="text-xs font-medium text-gray-600">
                     Active Filters:
                   </span>
                   {filterExam && (
-                    <span className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-semibold">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Exam:{" "}
                       {exams.find((e) => e._id === filterExam)?.name || "N/A"}
                       <button
@@ -503,7 +589,7 @@ const SubjectManagement = () => {
                   )}
                   <button
                     onClick={clearFilters}
-                    className="ml-auto px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full text-xs font-semibold transition-colors"
+                    className="ml-auto px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full text-xs font-medium transition-colors"
                   >
                     Clear All Filters
                   </button>
@@ -512,7 +598,7 @@ const SubjectManagement = () => {
             </div>
           )}
 
-          <div className="p-4">
+          <div className="p-6">
             {isDataLoading ? (
               <div className="flex items-center justify-center py-12">
                 <div className="text-center">
@@ -538,18 +624,23 @@ const SubjectManagement = () => {
                 {activeFilterCount > 0 ? (
                   <button
                     onClick={clearFilters}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors"
                   >
                     Clear Filters
                   </button>
-                ) : (
+                ) : canCreate ? (
                   <button
                     onClick={() => setShowAddForm(true)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 flex items-center gap-2"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
                   >
                     <FaPlus className="w-4 h-4" />
                     Create Your First Subject
                   </button>
+                ) : (
+                  <div className="px-4 py-2 bg-gray-100 text-gray-500 rounded-lg text-sm font-medium flex items-center gap-2">
+                    <FaLock className="w-4 h-4" />
+                    <span>{getPermissionMessage("create", role)}</span>
+                  </div>
                 )}
               </div>
             ) : (

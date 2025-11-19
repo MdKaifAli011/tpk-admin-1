@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Chapter from "@/models/Chapter";
+import { logger } from "@/utils/logger";
 
 export async function POST(request) {
   return handleReorder(request);
@@ -35,6 +36,38 @@ async function handleReorder(request) {
           { status: 400 }
         );
       }
+      if (typeof chapter.orderNumber !== 'number') {
+        return NextResponse.json(
+          { success: false, message: "orderNumber must be a number" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Validate that all chapters belong to the same unit
+    const chapterDocs = await Chapter.find({ _id: { $in: chapters.map(c => c.id) } })
+      .select('unitId');
+    
+    if (chapterDocs.length !== chapters.length) {
+      return NextResponse.json(
+        { success: false, message: "Some chapters not found" },
+        { status: 404 }
+      );
+    }
+
+    const firstChapter = chapterDocs[0];
+    const firstUnitId = firstChapter.unitId?.toString() || firstChapter.unitId;
+
+    for (let i = 1; i < chapterDocs.length; i++) {
+      const chapter = chapterDocs[i];
+      const unitId = chapter.unitId?.toString() || chapter.unitId;
+      
+      if (unitId !== firstUnitId) {
+        return NextResponse.json(
+          { success: false, message: "All chapters must belong to the same unit" },
+          { status: 400 }
+        );
+      }
     }
 
     // Two-step update strategy to avoid duplicate key conflicts
@@ -64,7 +97,7 @@ async function handleReorder(request) {
       modifiedCount: result.modifiedCount,
     });
   } catch (error) {
-    console.error("Error reordering chapters:", error);
+    logger.error("Error reordering chapters:", error);
     return NextResponse.json(
       { success: false, message: "Failed to reorder chapters" },
       { status: 500 }

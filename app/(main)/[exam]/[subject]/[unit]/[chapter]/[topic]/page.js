@@ -1,16 +1,14 @@
-"use client";
-import React, { useState, useEffect } from "react";
+import React from "react";
+import { notFound } from "next/navigation";
 import MainLayout from "../../../../../layout/MainLayout";
-import { useParams, notFound, useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   FaBook,
-  FaGraduationCap,
   FaFileAlt,
-  FaChevronLeft,
-  FaChevronRight,
 } from "react-icons/fa";
 import ListItem from "../../../../../components/ListItem";
+import TabsClient from "../../../../../components/TabsClient";
+import NavigationClient from "../../../../../components/NavigationClient";
+import { ERROR_MESSAGES } from "@/constants";
 import {
   fetchExamById,
   fetchSubjectsByExam,
@@ -24,178 +22,149 @@ import {
   fetchSubTopicsByTopic,
   createSlug,
   findByIdOrSlug,
+  fetchTopicDetailsById,
 } from "../../../../../lib/api";
+import {
+  getNextTopic,
+  getPreviousTopic,
+} from "../../../../../lib/hierarchicalNavigation";
 
-const TABS = ["Overview", "Discussion Forum", "Practice Test", "Performance"];
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-const TopicPage = () => {
+const TopicPage = async ({ params }) => {
   const {
     exam: examId,
     subject: subjectSlug,
     unit: unitSlug,
     chapter: chapterSlug,
     topic: topicSlug,
-  } = useParams();
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState(TABS[0]);
+  } = await params;
 
-  // Data states
-  const [exam, setExam] = useState(null);
-  const [subject, setSubject] = useState(null);
-  const [unit, setUnit] = useState(null);
-  const [chapter, setChapter] = useState(null);
-  const [topic, setTopic] = useState(null);
-  const [subTopics, setSubTopics] = useState([]);
-  const [allTopics, setAllTopics] = useState([]);
-  const [currentTopicIndex, setCurrentTopicIndex] = useState(-1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // Fetch exam, subject, unit, chapter, topic, and subtopics
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        // Fetch exam
-        const fetchedExam = await fetchExamById(examId);
-        if (!fetchedExam) {
-          notFound();
-          return;
-        }
-        setExam(fetchedExam);
-
-        // Fetch subjects for this exam
-        const examIdValue = fetchedExam._id || examId;
-        const fetchedSubjects = await fetchSubjectsByExam(examIdValue);
-
-        // Find subject by slug
-        const foundSubject = findByIdOrSlug(fetchedSubjects, subjectSlug);
-        if (!foundSubject) {
-          notFound();
-          return;
-        }
-        
-        // Fetch full subject data including content
-        const fullSubjectData = await fetchSubjectById(foundSubject._id);
-        setSubject(fullSubjectData || foundSubject);
-
-        // Fetch units for this subject
-        const fetchedUnits = await fetchUnitsBySubject(
-          foundSubject._id,
-          examIdValue
-        );
-
-        // Find unit by slug
-        const foundUnit = findByIdOrSlug(fetchedUnits, unitSlug);
-        if (!foundUnit) {
-          notFound();
-          return;
-        }
-        
-        // Fetch full unit data including content
-        const fullUnitData = await fetchUnitById(foundUnit._id);
-        setUnit(fullUnitData || foundUnit);
-
-        // Fetch chapters for this unit
-        const fetchedChapters = await fetchChaptersByUnit(foundUnit._id);
-
-        // Find chapter by slug
-        const foundChapter = findByIdOrSlug(fetchedChapters, chapterSlug);
-        if (!foundChapter) {
-          notFound();
-          return;
-        }
-        
-        // Fetch full chapter data including content
-        const fullChapterData = await fetchChapterById(foundChapter._id);
-        setChapter(fullChapterData || foundChapter);
-
-        // Fetch topics for this chapter
-        const fetchedTopics = await fetchTopicsByChapter(foundChapter._id);
-        setAllTopics(fetchedTopics);
-
-        // Find topic by slug
-        const foundTopic = findByIdOrSlug(fetchedTopics, topicSlug);
-        if (!foundTopic) {
-          notFound();
-          return;
-        }
-        
-        // Fetch full topic data including content
-        const fullTopicData = await fetchTopicById(foundTopic._id);
-        setTopic(fullTopicData || foundTopic);
-
-        // Find current topic index for navigation
-        const index = fetchedTopics.findIndex(
-          (t) =>
-            t._id === foundTopic._id ||
-            createSlug(t.name) === topicSlug ||
-            t.name?.toLowerCase() === topicSlug.toLowerCase()
-        );
-        setCurrentTopicIndex(index);
-
-        // Fetch subtopics for this topic
-        const fetchedSubTopics = await fetchSubTopicsByTopic(foundTopic._id);
-        setSubTopics(fetchedSubTopics);
-      } catch (err) {
-        console.error("Error loading topic data:", err);
-        setError("Failed to load topic data. Please try again later.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (examId && subjectSlug && unitSlug && chapterSlug && topicSlug) {
-      loadData();
-    }
-  }, [examId, subjectSlug, unitSlug, chapterSlug, topicSlug]);
-
-  if (isLoading) {
-    return (
-      <MainLayout>
-        <div className="space-y-6">
-          <div className="animate-pulse">
-            <div className="h-32 bg-gray-200 rounded-xl"></div>
-            <div className="h-64 bg-gray-200 rounded-xl"></div>
-          </div>
-        </div>
-      </MainLayout>
-    );
+  // Fetch exam
+  const fetchedExam = await fetchExamById(examId);
+  if (!fetchedExam) {
+    notFound();
   }
 
-  if (error || !exam || !subject || !unit || !chapter || !topic) {
-    return (
-      <MainLayout>
-        <div className="space-y-6">
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            {error || "Topic not found"}
-          </div>
-        </div>
-      </MainLayout>
-    );
+  const examIdValue = fetchedExam._id || examId;
+
+  // Fetch subjects for this exam
+  const fetchedSubjects = await fetchSubjectsByExam(examIdValue);
+
+  // Find subject by slug
+  const foundSubject = findByIdOrSlug(fetchedSubjects, subjectSlug);
+  if (!foundSubject) {
+    notFound();
   }
 
-  const examSlug = createSlug(exam.name);
-  const subjectSlugValue = createSlug(subject.name);
-  const unitSlugValue = createSlug(unit.name);
-  const chapterSlugValue = createSlug(chapter.name);
-  const topicSlugValue = createSlug(topic.name);
+  // Fetch full subject data
+  const fullSubjectData = await fetchSubjectById(foundSubject._id);
+  const subject = fullSubjectData || foundSubject;
 
-  // Navigation helpers
-  const prevTopic =
-    currentTopicIndex > 0 ? allTopics[currentTopicIndex - 1] : null;
-  const nextTopic =
-    currentTopicIndex < allTopics.length - 1
-      ? allTopics[currentTopicIndex + 1]
-      : null;
+  // Fetch units for this subject
+  const fetchedUnits = await fetchUnitsBySubject(
+    foundSubject._id,
+    examIdValue
+  );
+
+  // Find unit by slug
+  const foundUnit = findByIdOrSlug(fetchedUnits, unitSlug);
+  if (!foundUnit) {
+    notFound();
+  }
+
+  // Fetch full unit data
+  const fullUnitData = await fetchUnitById(foundUnit._id);
+  const unit = fullUnitData || foundUnit;
+
+  // Fetch chapters for this unit
+  const fetchedChapters = await fetchChaptersByUnit(foundUnit._id);
+
+  // Find chapter by slug
+  const foundChapter = findByIdOrSlug(fetchedChapters, chapterSlug);
+  if (!foundChapter) {
+    notFound();
+  }
+
+  // Fetch full chapter data
+  const fullChapterData = await fetchChapterById(foundChapter._id);
+  const chapter = fullChapterData || foundChapter;
+
+  // Fetch topics for this chapter
+  const fetchedTopics = await fetchTopicsByChapter(foundChapter._id);
+
+  // Find topic by slug
+  const foundTopic = findByIdOrSlug(fetchedTopics, topicSlug);
+  if (!foundTopic) {
+    notFound();
+  }
+
+  // Fetch full topic data, details, and subtopics in parallel
+  const [fullTopicData, topicDetails, fetchedSubTopics] = await Promise.all([
+    fetchTopicById(foundTopic._id),
+    fetchTopicDetailsById(foundTopic._id).catch(() => ({
+      content: "",
+      title: "",
+      metaDescription: "",
+      keywords: "",
+    })),
+    fetchSubTopicsByTopic(foundTopic._id),
+  ]);
+
+  const topic = fullTopicData || foundTopic;
+
+  // Find current topic index for navigation
+  const index = fetchedTopics.findIndex(
+    (t) =>
+      t._id === foundTopic._id ||
+      createSlug(t.name) === topicSlug ||
+      t.name?.toLowerCase() === topicSlug.toLowerCase()
+  );
+
+  const examSlug = createSlug(fetchedExam.name);
+  const subjectSlugValue = subject.slug || createSlug(subject.name);
+  const unitSlugValue = unit.slug || createSlug(unit.name);
+  const chapterSlugValue = chapter.slug || createSlug(chapter.name);
+  const topicSlugValue = topic.slug || createSlug(topic.name);
+
+  // Calculate hierarchical navigation
+  const [nextNav, prevNav] = await Promise.all([
+    getNextTopic({
+      examId: examIdValue,
+      examSlug: examSlug,
+      subjectId: foundSubject._id,
+      subjectSlug: subjectSlugValue,
+      unitId: foundUnit._id,
+      unitSlug: unitSlugValue,
+      chapterId: foundChapter._id,
+      chapterSlug: chapterSlugValue,
+      topicId: foundTopic._id,
+      topicSlug: topicSlugValue,
+      currentIndex: index,
+      allItems: fetchedTopics,
+    }),
+    getPreviousTopic({
+      examId: examIdValue,
+      examSlug: examSlug,
+      subjectId: foundSubject._id,
+      subjectSlug: subjectSlugValue,
+      unitId: foundUnit._id,
+      unitSlug: unitSlugValue,
+      chapterId: foundChapter._id,
+      chapterSlug: chapterSlugValue,
+      topicId: foundTopic._id,
+      topicSlug: topicSlugValue,
+      currentIndex: index,
+      allItems: fetchedTopics,
+    }),
+  ]);
 
   return (
     <MainLayout>
       <div className="space-y-6">
         {/* Header */}
-        <section className="bg-gradient-to-b from-purple-50/40 via-white to-purple-50/30 border border-purple-100 rounded-xl p-5">
+        <section className="bg-linear-to-b from-purple-50/40 via-white to-purple-50/30 border border-purple-100 rounded-xl p-5">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
@@ -205,7 +174,7 @@ const TopicPage = () => {
                     {topic.name}
                   </h1>
                   <p className="text-sm text-gray-600 mt-1">
-                    {exam.name} &gt; {subject.name} &gt; {unit.name} &gt;{" "}
+                    {fetchedExam.name} &gt; {subject.name} &gt; {unit.name} &gt;{" "}
                     {chapter.name} &gt; {topic.name}
                   </p>
                 </div>
@@ -229,121 +198,30 @@ const TopicPage = () => {
         </section>
 
         {/* Tabs */}
-        <section className="bg-white rounded-xl shadow-md border border-gray-100">
-          <nav className="flex justify-around border-b border-gray-200 bg-gray-50">
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`relative px-5 py-3 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "text-blue-600 border-b-2 border-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  {tab}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="p-6 text-gray-600">
-            {
-              {
-                Overview: (
-                  <div>
-                    {topic?.content ? (
-                      <div
-                        className="prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{
-                          __html: topic.content,
-                        }}
-                      />
-                    ) : (
-                      <>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">
-                          Topic Overview
-                        </h3>
-                        <p className="text-gray-600 mb-4">
-                          Study materials and resources for {topic.name} in{" "}
-                          {chapter.name} for {subject.name} in {exam.name}.
-                        </p>
-                        <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                          <p className="text-sm text-gray-500 italic">
-                            Topic content and study materials will be available
-                            soon.
-                          </p>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ),
-                "Discussion Forum": (
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">
-                      Discussion Forum
-                    </h3>
-                    <p className="text-gray-600 mb-4">
-                      Ask questions and discuss {topic.name} with fellow
-                      students.
-                    </p>
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <p className="text-sm text-gray-500 italic">
-                        Discussion forum features will be available soon.
-                      </p>
-                    </div>
-                  </div>
-                ),
-                "Practice Test": (
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">
-                      Practice Tests
-                    </h3>
-                    <p className="text-gray-600 mb-4">
-                      Take practice tests for {topic.name}.
-                    </p>
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <p className="text-sm text-gray-500 italic">
-                        Practice tests will be available soon.
-                      </p>
-                    </div>
-                  </div>
-                ),
-                Performance: (
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">
-                      Performance Analytics
-                    </h3>
-                    <p className="text-gray-600 mb-4">
-                      Track your performance in {topic.name}.
-                    </p>
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <p className="text-sm text-gray-500 italic">
-                        Performance analytics will be available soon.
-                      </p>
-                    </div>
-                  </div>
-                ),
-              }[activeTab]
-            }
-          </div>
-        </section>
+        <TabsClient
+          content={topicDetails?.content}
+          examId={fetchedExam._id}
+          subjectId={subject._id}
+          unitId={unit._id}
+          chapterId={chapter._id}
+          topicId={topic._id}
+          entityName={topic.name}
+          entityType="topic"
+        />
 
         {/* Sub Topics Section */}
-        {subTopics.length > 0 && (
+        {fetchedSubTopics.length > 0 && (
           <section className="bg-white rounded-xl shadow-lg border border-gray-100 p-6 md:p-8">
             <div className="flex items-center gap-3 mb-6">
               <FaBook className="text-xl text-indigo-600" />
               <h2 className="text-xl font-semibold text-gray-900">
-                {exam.name} &gt; {subject.name} &gt; {unit.name} &gt; {chapter.name} &gt; {topic.name} Sub Topics
+                {fetchedExam.name} &gt; {subject.name} &gt; {unit.name} &gt; {chapter.name} &gt; {topic.name} Sub Topics
               </h2>
             </div>
 
             <div className="space-y-3">
-              {subTopics.map((subTopic, index) => {
-                const subtopicSlug = createSlug(subTopic.name);
+              {fetchedSubTopics.map((subTopic, index) => {
+                const subtopicSlug = subTopic.slug || createSlug(subTopic.name);
                 return (
                   <ListItem
                     key={subTopic._id || index}
@@ -364,42 +242,15 @@ const TopicPage = () => {
         )}
 
         {/* Navigation */}
-        <section className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
-          <div className="flex items-center justify-between">
-            <Link
-              href={`/${examSlug}/${subjectSlugValue}/${unitSlugValue}/${chapterSlugValue}`}
-              className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
-            >
-              <FaChevronLeft className="text-xs" />
-              <span>Back to {chapter.name}</span>
-            </Link>
-
-            <div className="flex items-center gap-4">
-              {prevTopic && (
-                <Link
-                  href={`/${examSlug}/${subjectSlugValue}/${unitSlugValue}/${chapterSlugValue}/${createSlug(prevTopic.name)}`}
-                  className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
-                >
-                  <FaChevronLeft className="text-xs" />
-                  <span className="hidden sm:inline">Previous</span>
-                </Link>
-              )}
-              {nextTopic && (
-                <Link
-                  href={`/${examSlug}/${subjectSlugValue}/${unitSlugValue}/${chapterSlugValue}/${createSlug(nextTopic.name)}`}
-                  className="flex items-center gap-2 text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
-                >
-                  <span className="hidden sm:inline">Next</span>
-                  <FaChevronRight className="text-xs" />
-                </Link>
-              )}
-            </div>
-          </div>
-        </section>
+        <NavigationClient
+          backUrl={`/${examSlug}/${subjectSlugValue}/${unitSlugValue}/${chapterSlugValue}`}
+          backLabel={`Back to ${chapter.name}`}
+          prevNav={prevNav}
+          nextNav={nextNav}
+        />
       </div>
     </MainLayout>
   );
 };
 
 export default TopicPage;
-

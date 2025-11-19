@@ -1,14 +1,16 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { FaArrowLeft, FaSave, FaEdit } from "react-icons/fa";
+import { FaArrowLeft, FaSave, FaEdit, FaLock } from "react-icons/fa";
 import { ToastContainer, useToast } from "../ui/Toast";
 import { LoadingSpinner } from "../ui/SkeletonLoader";
 import RichTextEditor from "../ui/RichTextEditor";
 import api from "@/lib/api";
+import { usePermissions, getPermissionMessage } from "../../hooks/usePermissions";
 
 const UnitDetailPage = ({ unitId }) => {
   const router = useRouter();
+  const { canEdit, role } = usePermissions();
   const { toasts, removeToast, success, error: showError } = useToast();
   const isFetchingRef = useRef(false);
 
@@ -30,18 +32,32 @@ const UnitDetailPage = ({ unitId }) => {
     isFetchingRef.current = true;
     try {
       setIsLoading(true);
-      const res = await api.get(`/unit/${unitId}`);
-      if (res.data?.success) {
-        const data = res.data.data;
+      // Fetch main unit and details in parallel
+      const [unitRes, detailsRes] = await Promise.all([
+        api.get(`/unit/${unitId}`),
+        api.get(`/unit/${unitId}/details`),
+      ]);
+      
+      if (unitRes.data?.success) {
+        const data = unitRes.data.data;
         setUnit(data);
+        
+        // Get details or use defaults
+        const details = detailsRes.data?.success ? detailsRes.data.data : {
+          content: "",
+          title: "",
+          metaDescription: "",
+          keywords: "",
+        };
+        
         setFormData({
           name: data.name || "",
-          content: data.content || "",
-          title: data.title || "",
-          metaDescription: data.metaDescription || "",
-          keywords: data.keywords || "",
+          content: details.content || "",
+          title: details.title || "",
+          metaDescription: details.metaDescription || "",
+          keywords: details.keywords || "",
         });
-      } else setError(res.data?.message || "Failed to fetch unit details");
+      } else setError(unitRes.data?.message || "Failed to fetch unit details");
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to fetch unit details");
     } finally {
@@ -58,14 +74,32 @@ const UnitDetailPage = ({ unitId }) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
 
   const handleSave = async () => {
+    // Check permissions
+    if (!canEdit) {
+      showError(getPermissionMessage("edit", role));
+      return;
+    }
+
     try {
       setIsSaving(true);
-      const res = await api.put(`/unit/${unitId}`, formData);
-      if (res.data?.success) {
+      // Save main unit and details separately
+      const [unitRes, detailsRes] = await Promise.all([
+        api.put(`/unit/${unitId}`, { name: formData.name }),
+        api.put(`/unit/${unitId}/details`, {
+          content: formData.content,
+          title: formData.title,
+          metaDescription: formData.metaDescription,
+          keywords: formData.keywords,
+        }),
+      ]);
+      
+      if (unitRes.data?.success && detailsRes.data?.success) {
         success("Unit details saved successfully!");
-        setUnit(res.data.data);
+        setUnit(unitRes.data.data);
         setIsEditing(false);
-      } else showError(res.data?.message || "Save failed");
+      } else {
+        showError(unitRes.data?.message || detailsRes.data?.message || "Save failed");
+      }
     } catch (err) {
       showError(err?.response?.data?.message || "Save failed");
     } finally {
@@ -171,25 +205,51 @@ const UnitDetailPage = ({ unitId }) => {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
-              >
-                {isSaving ? (
-                  <LoadingSpinner size="small" />
-                ) : (
-                  <FaSave className="w-4 h-4" />
-                )}
-                {isSaving ? "Saving..." : "Save Changes"}
-              </button>
+              {canEdit ? (
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <LoadingSpinner size="small" />
+                  ) : (
+                    <FaSave className="w-4 h-4" />
+                  )}
+                  {isSaving ? "Saving..." : "Save Changes"}
+                </button>
+              ) : (
+                <button
+                  disabled
+                  title={getPermissionMessage("edit", role)}
+                  className="px-2 py-2 bg-gray-300 text-gray-500 rounded-xl font-semibold flex items-center gap-2 cursor-not-allowed transition-all duration-200"
+                >
+                  <FaLock className="w-4 h-4" />
+                  Save Changes
+                </button>
+              )}
             </>
-          ) : (
+          ) : canEdit ? (
             <button
-              onClick={() => setIsEditing(true)}
+              onClick={() => {
+                if (canEdit) {
+                  setIsEditing(true);
+                } else {
+                  showError(getPermissionMessage("edit", role));
+                }
+              }}
               className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200"
             >
               <FaEdit className="w-4 h-4" />
+              Edit Unit
+            </button>
+          ) : (
+            <button
+              disabled
+              title={getPermissionMessage("edit", role)}
+              className="px-2 py-2 bg-gray-300 text-gray-500 rounded-xl font-semibold flex items-center gap-2 cursor-not-allowed transition-all duration-200"
+            >
+              <FaLock className="w-4 h-4" />
               Edit Unit
             </button>
           )}

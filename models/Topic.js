@@ -1,10 +1,15 @@
 import mongoose from "mongoose";
+import { createSlug, generateUniqueSlug } from "../utils/serverSlug.js";
 
 const topicSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
+      trim: true,
+    },
+    slug: {
+      type: String,
       trim: true,
     },
     orderNumber: {
@@ -37,16 +42,39 @@ const topicSchema = new mongoose.Schema(
       enum: ["active", "inactive"],
       default: "active",
     },
-    content: { type: String, default: "" },
-    title: { type: String, trim: true, default: "" },
-    metaDescription: { type: String, trim: true, default: "" },
-    keywords: { type: String, trim: true, default: "" },
   },
   { timestamps: true }
 );
 
 // Add compound index to ensure unique orderNumber per chapter within an exam
 topicSchema.index({ chapterId: 1, orderNumber: 1 }, { unique: true });
+
+// Compound index for unique slug per chapter
+topicSchema.index({ chapterId: 1, slug: 1 }, { unique: true, sparse: true });
+
+// Pre-save hook to auto-generate slug
+topicSchema.pre("save", async function (next) {
+  if (this.isModified("name") || this.isNew) {
+    const baseSlug = createSlug(this.name);
+    
+    // Check if slug exists within the same chapter (excluding current document for updates)
+    const checkExists = async (slug, excludeId) => {
+      const query = { chapterId: this.chapterId, slug };
+      if (excludeId) {
+        query._id = { $ne: excludeId };
+      }
+      const existing = await mongoose.models.Topic.findOne(query);
+      return !!existing;
+    };
+    
+    this.slug = await generateUniqueSlug(
+      baseSlug,
+      checkExists,
+      this._id || null
+    );
+  }
+  next();
+});
 
 // Cascading delete: When a Topic is deleted, delete all related SubTopics
 topicSchema.pre("findOneAndDelete", async function () {
@@ -57,8 +85,15 @@ topicSchema.pre("findOneAndDelete", async function () {
         `🗑️ Cascading delete: Deleting all entities for topic ${topic._id}`
       );
 
-      // Get model - use mongoose.model() to ensure model is loaded
+      // Get models - use mongoose.model() to ensure models are loaded
       const SubTopic = mongoose.models.SubTopic || mongoose.model("SubTopic");
+      const TopicDetails = mongoose.models.TopicDetails || mongoose.model("TopicDetails");
+
+      // Delete topic details first
+      const topicDetailsResult = await TopicDetails.deleteMany({ topicId: topic._id });
+      console.log(
+        `🗑️ Cascading delete: Deleted ${topicDetailsResult.deletedCount} TopicDetails for topic ${topic._id}`
+      );
 
       const result = await SubTopic.deleteMany({ topicId: topic._id });
       console.log(
@@ -71,7 +106,12 @@ topicSchema.pre("findOneAndDelete", async function () {
   }
 });
 
-const Topic = mongoose.models.Topic || mongoose.model("Topic", topicSchema);
+// Ensure the latest schema is used during dev hot-reload
+// If a previous version of the model exists (with an outdated schema), delete it first
+if (mongoose.connection?.models?.Topic) {
+  delete mongoose.connection.models.Topic;
+}
+
+const Topic = mongoose.model("Topic", topicSchema);
 
 export default Topic;
-

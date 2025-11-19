@@ -1,95 +1,70 @@
-"use client";
-import React, { useMemo, useState, useEffect } from "react";
-import { useParams, notFound, useRouter } from "next/navigation";
-import Link from "next/link";
+﻿import React from "react";
+import { notFound } from "next/navigation";
 import MainLayout from "../layout/MainLayout";
-import { FaBook, FaGraduationCap } from "react-icons/fa";
+import { FaGraduationCap } from "react-icons/fa";
 import ListItem from "../components/ListItem";
+import TabsClient from "../components/TabsClient";
+import NavigationClient from "../components/NavigationClient";
 import {
   fetchExamById,
   fetchSubjectsByExam,
   createSlug,
-  findByIdOrSlug,
+  fetchExams,
+  fetchExamDetailsById,
 } from "../lib/api";
+import { ERROR_MESSAGES, PLACEHOLDERS } from "@/constants";
+import { getNextExam, getPreviousExam } from "../lib/hierarchicalNavigation";
+import Link from "next/link";
+import { FaChevronLeft, FaChevronRight } from "react-icons/fa";
 
-const TABS = ["Overview", "Discussion Forum", "Practice Test", "Performance"];
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-const ExamPage = () => {
-  const { exam: examId } = useParams();
-  const router = useRouter();
-  const [activeTab, setActiveTab] = useState(TABS[0]);
+const ExamPage = async ({ params }) => {
+  const { exam: examId } = await params;
 
-  // Data states
-  const [exam, setExam] = useState(null);
-  const [subjects, setSubjects] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  // Fetch exam and subjects
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        // Fetch exam
-        const fetchedExam = await fetchExamById(examId);
-        if (!fetchedExam) {
-          notFound();
-          return;
-        }
-        setExam(fetchedExam);
-
-        // Fetch subjects for this exam
-        const examIdValue = fetchedExam._id || examId;
-        const fetchedSubjects = await fetchSubjectsByExam(examIdValue);
-        // Subjects are already sorted by orderNumber in the API function
-        setSubjects(fetchedSubjects);
-      } catch (err) {
-        console.error("Error loading exam data:", err);
-        setError("Failed to load exam data. Please try again later.");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    if (examId) {
-      loadData();
-    }
-  }, [examId]);
-
-  if (isLoading) {
-    return (
-      <MainLayout>
-        <div className="space-y-8">
-          <div className="animate-pulse">
-            <div className="h-32 bg-gray-200 rounded-xl"></div>
-            <div className="h-64 bg-gray-200 rounded-xl"></div>
-          </div>
-        </div>
-      </MainLayout>
-    );
+  // Fetch exam data
+  const exam = await fetchExamById(examId);
+  if (!exam) {
+    notFound();
   }
 
-  if (error || !exam) {
-    return (
-      <MainLayout>
-        <div className="space-y-8">
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-            {error || "Exam not found"}
-          </div>
-        </div>
-      </MainLayout>
-    );
-  }
+  // Fetch exam details and subjects in parallel
+  const [examDetails, subjects] = await Promise.all([
+    fetchExamDetailsById(exam._id).catch(() => ({
+      content: "",
+      title: "",
+      metaDescription: "",
+      keywords: "",
+    })),
+    fetchSubjectsByExam(exam._id || examId),
+  ]);
 
-  const examSlug = exam ? createSlug(exam.name) : "";
+  // Calculate navigation
+  const allExams = await fetchExams({ limit: 100 });
+  const examIndex = allExams.findIndex((e) => e._id === exam._id);
+  const examSlug = createSlug(exam.name);
+
+  const [nextNav, prevNav] = await Promise.all([
+    getNextExam({
+      examId: exam._id,
+      examSlug: examSlug,
+      currentIndex: examIndex,
+      allItems: allExams,
+    }),
+    getPreviousExam({
+      examId: exam._id,
+      examSlug: examSlug,
+      currentIndex: examIndex,
+      allItems: allExams,
+    }),
+  ]);
 
   return (
     <MainLayout>
       <div className="space-y-8">
         {/* Header */}
-        <section className="bg-gradient-to-b from-purple-50/40 via-white to-purple-50/30 border border-purple-100 rounded-xl p-5">
+        <section className="bg-linear-to-b from-purple-50/40 via-white to-purple-50/30 border border-purple-100 rounded-xl p-5 sm:p-6 md:p-8">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <h1 className="text-2xl font-bold text-indigo-900">
@@ -118,82 +93,65 @@ const ExamPage = () => {
         </section>
 
         {/* Tabs */}
-        <section className="bg-white rounded-xl shadow-md border border-gray-100">
-          <nav className="flex justify-around border-b border-gray-200 bg-gray-50">
-            {TABS.map((tab) => {
-              const isActive = activeTab === tab;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`relative px-5 py-3 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "text-blue-600 border-b-2 border-blue-600"
-                      : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  {tab}
-                </button>
-              );
-            })}
-          </nav>
-
-          <div className="p-6 text-gray-600">
-            {activeTab === "Overview" && (
-              <div
-                className="prose prose-sm max-w-none"
-                dangerouslySetInnerHTML={{
-                  __html: exam?.content || "No content available.",
-                }}
-              />
-            )}
-            {activeTab === "Discussion Forum" && (
-              <div>Discussion Forum content will appear here...</div>
-            )}
-            {activeTab === "Practice Test" && (
-              <div>Practice Test content will appear here...</div>
-            )}
-            {activeTab === "Performance" && (
-              <div>Performance content will appear here...</div>
-            )}
-          </div>
-        </section>
+        <TabsClient
+          content={examDetails?.content}
+          examId={exam._id}
+          entityName={exam.name}
+          entityType="exam"
+        />
 
         {/* Subjects Section */}
-        <section className="bg-white rounded-xl shadow-lg border border-gray-100 p-6 md:p-8">
-          <div className="flex items-center gap-3 mb-6">
-            <FaGraduationCap className="text-xl text-indigo-600" />
-            <h2 className="text-xl font-semibold text-gray-900">
-              {exam.name} Subjects
-            </h2>
-          </div>
+        <section className="bg-transparent">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
+              <div className="flex items-start gap-2">
+                <FaGraduationCap className="text-lg sm:text-xl text-indigo-600" />
+                <div>
+                  <h2 className="text-base sm:text-lg font-semibold text-gray-900">
+                    {exam.name} Subjects
+                  </h2>
+                  <p className="mt-1 text-xs sm:text-sm text-gray-500">
+                    Explore subjects and track completion progress for this
+                    exam.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 hidden sm:grid sm:grid-cols-[minmax(0,1fr)_140px_180px] gap-6 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                <span className="text-left">Subject</span>
+                <span className="text-center">Status</span>
+                <span className="text-center">Progress</span>
+              </div>
+            </div>
 
-          <div className="space-y-3">
-            {subjects.length > 0 ? (
-              subjects.map((subject, index) => {
-                const subjectSlug = createSlug(subject.name);
-                return (
-                  <ListItem
-                    key={subject._id}
-                    item={{
-                      name: subject.name,
-                      weightage: subject.weightage || "20%",
-                      engagement: subject.engagement || "2.2K",
-                      isCompleted: subject.isCompleted || false,
-                      progress: subject.progress || 0,
-                    }}
-                    index={index}
-                    href={`/${examSlug}/${subjectSlug}`}
-                  />
-                );
-              })
+            {subjects && subjects.length > 0 ? (
+              <div className="divide-y divide-gray-100">
+                {subjects.map((subject, index) => {
+                  const subjectSlug = subject.slug || createSlug(subject.name);
+                  return (
+                    <ListItem
+                      key={subject._id}
+                      item={subject}
+                      index={index}
+                      href={`/${examSlug}/${subjectSlug}`}
+                    />
+                  );
+                })}
+              </div>
             ) : (
-              <div className="text-center py-8 text-gray-500">
-                No subjects available for this exam.
+              <div className="px-4 sm:px-6 py-10 text-center text-gray-500">
+                {PLACEHOLDERS.NO_DATA}
               </div>
             )}
           </div>
         </section>
+
+        {/* Navigation */}
+        <NavigationClient
+          backUrl="/"
+          backLabel="Back to Home"
+          prevNav={prevNav}
+          nextNav={nextNav}
+        />
       </div>
     </MainLayout>
   );

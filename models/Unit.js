@@ -1,12 +1,17 @@
 import mongoose from "mongoose";
-import Subject from "./Subject";
-import Exam from "./Exam";
+import Subject from "./Subject.js";
+import Exam from "./Exam.js";
+import { createSlug, generateUniqueSlug } from "../utils/serverSlug.js";
 
 const unitSchema = new mongoose.Schema(
   {
     name: {
       type: String,
       required: true,
+      trim: true,
+    },
+    slug: {
+      type: String,
       trim: true,
     },
     orderNumber: {
@@ -29,31 +34,39 @@ const unitSchema = new mongoose.Schema(
       enum: ["active", "inactive"],
       default: "active",
     },
-    content: {
-      type: String,
-      default: "",
-    },
-    title: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    metaDescription: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    keywords: {
-      type: String,
-      trim: true,
-      default: "",
-    },
   },
   { timestamps: true }
 );
 
 // Add compound index to ensure unique orderNumber per subject within an exam
 unitSchema.index({ subjectId: 1, orderNumber: 1 }, { unique: true });
+
+// Compound index for unique slug per subject
+unitSchema.index({ subjectId: 1, slug: 1 }, { unique: true, sparse: true });
+
+// Pre-save hook to auto-generate slug
+unitSchema.pre("save", async function (next) {
+  if (this.isModified("name") || this.isNew) {
+    const baseSlug = createSlug(this.name);
+    
+    // Check if slug exists within the same subject (excluding current document for updates)
+    const checkExists = async (slug, excludeId) => {
+      const query = { subjectId: this.subjectId, slug };
+      if (excludeId) {
+        query._id = { $ne: excludeId };
+      }
+      const existing = await mongoose.models.Unit.findOne(query);
+      return !!existing;
+    };
+    
+    this.slug = await generateUniqueSlug(
+      baseSlug,
+      checkExists,
+      this._id || null
+    );
+  }
+  next();
+});
 
 // Cascading delete: When a Unit is deleted, delete all related Chapters, Topics, and SubTopics
 unitSchema.pre("findOneAndDelete", async function () {
@@ -68,6 +81,13 @@ unitSchema.pre("findOneAndDelete", async function () {
       const Chapter = mongoose.models.Chapter || mongoose.model("Chapter");
       const Topic = mongoose.models.Topic || mongoose.model("Topic");
       const SubTopic = mongoose.models.SubTopic || mongoose.model("SubTopic");
+      const UnitDetails = mongoose.models.UnitDetails || mongoose.model("UnitDetails");
+
+      // Delete unit details first
+      const unitDetailsResult = await UnitDetails.deleteMany({ unitId: unit._id });
+      console.log(
+        `🗑️ Cascading delete: Deleted ${unitDetailsResult.deletedCount} UnitDetails for unit ${unit._id}`
+      );
 
       // Find all chapters in this unit
       const chapters = await Chapter.find({ unitId: unit._id });

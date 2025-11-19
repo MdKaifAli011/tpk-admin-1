@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import SubTopic from "@/models/SubTopic";
 import mongoose from "mongoose";
+import { logger } from "@/utils/logger";
 
 // ---------- PATCH SUBTOPIC STATUS ----------
 export async function PATCH(request, { params }) {
@@ -31,7 +32,7 @@ export async function PATCH(request, { params }) {
     // Update subtopic status
     const updated = await SubTopic.findByIdAndUpdate(
       id,
-      { status },
+      { $set: { status } },
       { new: true }
     );
 
@@ -50,7 +51,7 @@ export async function PATCH(request, { params }) {
       data: updated,
     });
   } catch (error) {
-    console.error("Error updating subtopic status:", error);
+    logger.error("Error updating subtopic status:", error);
     return NextResponse.json(
       { success: false, message: "Failed to update subtopic status" },
       { status: 500 }

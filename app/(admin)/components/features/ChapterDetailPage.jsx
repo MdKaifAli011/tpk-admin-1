@@ -1,16 +1,18 @@
 "use client";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { FaArrowLeft, FaSave, FaEdit } from "react-icons/fa";
+import { FaArrowLeft, FaSave, FaEdit, FaLock } from "react-icons/fa";
 import { ToastContainer, useToast } from "../ui/Toast";
 import { LoadingSpinner } from "../ui/SkeletonLoader";
 import RichTextEditor from "../ui/RichTextEditor";
 import api from "@/lib/api";
+import { usePermissions, getPermissionMessage } from "../../hooks/usePermissions";
 
 const ChapterDetailPage = () => {
   const params = useParams();
   const router = useRouter();
   const chapterId = params.id;
+  const { canEdit, role } = usePermissions();
 
   const [chapter, setChapter] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -32,18 +34,32 @@ const ChapterDetailPage = () => {
     isFetchingRef.current = true;
     try {
       setIsLoading(true);
-      const res = await api.get(`/chapter/${chapterId}`);
-      if (res.data?.success) {
-        const data = res.data.data;
+      // Fetch main chapter and details in parallel
+      const [chapterRes, detailsRes] = await Promise.all([
+        api.get(`/chapter/${chapterId}`),
+        api.get(`/chapter/${chapterId}/details`),
+      ]);
+      
+      if (chapterRes.data?.success) {
+        const data = chapterRes.data.data;
         setChapter(data);
+        
+        // Get details or use defaults
+        const details = detailsRes.data?.success ? detailsRes.data.data : {
+          content: "",
+          title: "",
+          metaDescription: "",
+          keywords: "",
+        };
+        
         setFormData({
           name: data.name || "",
-          content: data.content || "",
-          title: data.title || "",
-          metaDescription: data.metaDescription || "",
-          keywords: data.keywords || "",
+          content: details.content || "",
+          title: details.title || "",
+          metaDescription: details.metaDescription || "",
+          keywords: details.keywords || "",
         });
-      } else setError(res.data?.message || "Failed to fetch chapter details");
+      } else setError(chapterRes.data?.message || "Failed to fetch chapter details");
     } catch (err) {
       setError(
         err?.response?.data?.message || "Failed to fetch chapter details"
@@ -62,14 +78,32 @@ const ChapterDetailPage = () => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
 
   const handleSave = async () => {
+    // Check permissions
+    if (!canEdit) {
+      showError(getPermissionMessage("edit", role));
+      return;
+    }
+
     try {
       setIsSaving(true);
-      const res = await api.put(`/chapter/${chapterId}`, formData);
-      if (res.data?.success) {
+      // Save main chapter and details separately
+      const [chapterRes, detailsRes] = await Promise.all([
+        api.put(`/chapter/${chapterId}`, { name: formData.name }),
+        api.put(`/chapter/${chapterId}/details`, {
+          content: formData.content,
+          title: formData.title,
+          metaDescription: formData.metaDescription,
+          keywords: formData.keywords,
+        }),
+      ]);
+      
+      if (chapterRes.data?.success && detailsRes.data?.success) {
         success("Chapter details saved successfully!");
-        setChapter(res.data.data);
+        setChapter(chapterRes.data.data);
         setIsEditing(false);
-      } else showError(res.data?.message || "Save failed");
+      } else {
+        showError(chapterRes.data?.message || detailsRes.data?.message || "Save failed");
+      }
     } catch (err) {
       showError(err?.response?.data?.message || "Save failed");
     } finally {
@@ -172,25 +206,51 @@ const ChapterDetailPage = () => {
               >
                 Cancel
               </button>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
-              >
-                {isSaving ? (
-                  <LoadingSpinner size="small" />
-                ) : (
-                  <FaSave className="w-4 h-4" />
-                )}
-                {isSaving ? "Saving..." : "Save Changes"}
-              </button>
+              {canEdit ? (
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200 disabled:opacity-50"
+                >
+                  {isSaving ? (
+                    <LoadingSpinner size="small" />
+                  ) : (
+                    <FaSave className="w-4 h-4" />
+                  )}
+                  {isSaving ? "Saving..." : "Save Changes"}
+                </button>
+              ) : (
+                <button
+                  disabled
+                  title={getPermissionMessage("edit", role)}
+                  className="px-2 py-2 bg-gray-300 text-gray-500 rounded-xl font-semibold flex items-center gap-2 cursor-not-allowed transition-all duration-200"
+                >
+                  <FaLock className="w-4 h-4" />
+                  Save Changes
+                </button>
+              )}
             </>
-          ) : (
+          ) : canEdit ? (
             <button
-              onClick={() => setIsEditing(true)}
+              onClick={() => {
+                if (canEdit) {
+                  setIsEditing(true);
+                } else {
+                  showError(getPermissionMessage("edit", role));
+                }
+              }}
               className="px-2 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 hover:shadow-lg text-white rounded-xl font-semibold flex items-center gap-2 transition-all duration-200"
             >
               <FaEdit className="w-4 h-4" />
+              Edit Chapter
+            </button>
+          ) : (
+            <button
+              disabled
+              title={getPermissionMessage("edit", role)}
+              className="px-2 py-2 bg-gray-300 text-gray-500 rounded-xl font-semibold flex items-center gap-2 cursor-not-allowed transition-all duration-200"
+            >
+              <FaLock className="w-4 h-4" />
               Edit Chapter
             </button>
           )}
