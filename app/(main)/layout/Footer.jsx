@@ -36,7 +36,7 @@ const Footer = () => {
   ];
 
   return (
-    <footer className="bg-gray-50">
+    <footer className="bg-gray-50 z-50 relative">
       {/* Upper Section - Four Columns */}
       <div className="container mx-auto px-4 py-12 md:py-16">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-6">
@@ -44,16 +44,16 @@ const Footer = () => {
           <div className="space-y-4">
             {/* Logo */}
             <Link href="/">
-            <Image 
-              src="/logo.png" 
-              alt="TestPrepKart Logo" 
-              width={150} 
-              height={150} 
-              className="w-24 sm:w-28 md:w-32 lg:w-36 h-auto"
-              loading="lazy"
-              placeholder="blur"
-              blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PC9zdmc+"
-            />
+              <Image
+                src="/logo.png"
+                alt="TestPrepKart Logo"
+                width={150}
+                height={150}
+                className="w-24 sm:w-28 md:w-32 lg:w-36 h-auto"
+                loading="lazy"
+                placeholder="blur"
+                blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PC9zdmc+"
+              />
             </Link>
             {/* Description */}
             <p className="text-gray-500 text-sm leading-relaxed">

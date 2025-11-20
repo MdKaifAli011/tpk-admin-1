@@ -8,11 +8,26 @@ import React, {
   useState,
 } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { FaSearch, FaChevronRight } from "react-icons/fa";
+import {
+  FaSearch,
+  FaChevronRight,
+  FaBars,
+  FaChevronDown,
+} from "react-icons/fa";
 import { fetchExams, fetchTree, createSlug, findByIdOrSlug } from "../lib/api";
 import { logger } from "@/utils/logger";
 
-// Build node using stored slug if available, fallback to generating from name
+/* ------------------------------------------------------------------------- */
+/* Design-system friendly, fixed, merged Sidebar (UI + advanced logic)        */
+/* - Fixed sidebar (always visible on desktop)                                */
+/* - Mobile-friendly overlay and toggle                                        */
+/* - Y-axis scrolling only (no x-scroll)                                      */
+/* - Ellipsis + native tooltip for long names                                  */
+/* - Debounced search, cache + request dedupe, auto-open by path               */
+/* - Smooth collapsible animations                                             */
+/* ------------------------------------------------------------------------- */
+
+// small helper: build node (same as your original)
 const buildNode = (item) => ({
   id: item?._id ?? "",
   name: item?.name ?? "",
@@ -20,99 +35,291 @@ const buildNode = (item) => ({
   slug: item?.slug || (item?.name ? createSlug(item.name) : ""),
 });
 
-const filterTreeByQuery = (tree, query) => {
-  if (!query) return tree;
+// Text with ellipsis + native tooltip (Design System compliant)
+const TextEllipsis = ({ children, maxW = "max-w-[200px]", className = "" }) => (
+  <span
+    className={`truncate whitespace-nowrap overflow-hidden block ${maxW} text-sm text-gray-900 ${className}`}
+    title={typeof children === "string" ? children : undefined}
+  >
+    {children}
+  </span>
+);
 
-  const match = (text) => text.toLowerCase().includes(query);
+// Collapsible component
+const Collapsible = ({ isOpen, children, className = "" }) => {
+  const ref = useRef(null);
+  const [maxHeight, setMaxHeight] = useState("0px");
 
-  return tree
-    .map((subject) => {
-      const subjectMatches = match(subject.name);
-      const filteredUnits = (subject.units || [])
-        .map((unit) => {
-          const unitMatches = subjectMatches || match(unit.name);
-          const filteredChapters = (unit.chapters || [])
-            .map((chapter) => {
-              const chapterMatches = unitMatches || match(chapter.name);
-              const filteredTopics = (chapter.topics || []).filter(
-                (topic) => chapterMatches || match(topic.name)
-              );
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
 
-              if (chapterMatches || filteredTopics.length > 0) {
-                return {
-                  ...chapter,
-                  topics: filteredTopics,
-                };
-              }
-              return null;
-            })
-            .filter(Boolean);
-
-          if (unitMatches || filteredChapters.length > 0) {
-            return {
-              ...unit,
-              chapters: filteredChapters,
-            };
-          }
-          return null;
-        })
-        .filter(Boolean);
-
-      if (subjectMatches || filteredUnits.length > 0) {
-        return {
-          ...subject,
-          units: filteredUnits,
-        };
+    if (isOpen) {
+      // expand
+      setMaxHeight(`${el.scrollHeight}px`);
+      const t = setTimeout(() => setMaxHeight("none"), 260);
+      return () => clearTimeout(t);
+    } else {
+      // collapse
+      if (el.scrollHeight) {
+        setMaxHeight(`${el.scrollHeight}px`);
+        requestAnimationFrame(() => setMaxHeight("0px"));
+      } else {
+        setMaxHeight("0px");
       }
-      return null;
-    })
-    .filter(Boolean);
+    }
+  }, [isOpen, children]);
+
+  const style =
+    maxHeight === "none"
+      ? {
+          overflowY: "visible",
+          transition: "max-height 240ms cubic-bezier(.2,.9,.2,1)",
+        }
+      : {
+          maxHeight,
+          overflow: "hidden",
+          transition: "max-height 240ms cubic-bezier(.2,.9,.2,1)",
+        };
+
+  return (
+    <div ref={ref} style={style} className={className}>
+      {children}
+    </div>
+  );
 };
 
-const Sidebar = ({ isOpen = false, onClose }) => {
+// Accessible searchable ExamDropdown
+const ExamDropdown = ({ exams = [], activeExamId, onSelect }) => {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const listRef = useRef(null);
+  const triggerRef = useRef(null);
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return exams;
+    return exams.filter((e) => e.name.toLowerCase().includes(q));
+  }, [exams, filter]);
+
+  // Reset filter and highlight when dropdown closes
+  useEffect(() => {
+    if (!open) {
+      // Use setTimeout to avoid synchronous setState in effect
+      const timer = setTimeout(() => {
+        setFilter("");
+        setHighlightIndex(-1);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
+  useEffect(() => {
+    const onDoc = (e) => {
+      if (triggerRef.current && !triggerRef.current.contains(e.target))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const handleKeyDown = (e) => {
+    if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
+      e.preventDefault();
+      setOpen(true);
+      return;
+    }
+    if (!open) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIndex((i) => Math.min(i + 1, filtered.length - 1));
+      scrollToHighlight();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIndex((i) => Math.max(i - 1, 0));
+      scrollToHighlight();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const item = filtered[highlightIndex] || filtered[0];
+      if (item) onSelect(item);
+      setOpen(false);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+    }
+  };
+
+  const scrollToHighlight = () => {
+    const list = listRef.current;
+    if (!list) return;
+    const item = list.children[highlightIndex];
+    if (item) item.scrollIntoView({ block: "nearest" });
+  };
+
+  const activeExam = exams.find((e) => e._id === activeExamId) || null;
+
+  return (
+    <div className="relative" ref={triggerRef}>
+      <button
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={handleKeyDown}
+        className="flex w-full items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-left text-sm font-medium text-gray-900 shadow-sm hover:shadow-md hover:border-gray-300 transition-all"
+      >
+        <div className="flex items-center gap-2 truncate min-w-0">
+          <span className="text-xs font-medium text-gray-500 shrink-0">
+            Exam
+          </span>
+          <TextEllipsis
+            maxW="max-w-[180px]"
+            className="font-semibold text-gray-900"
+          >
+            {activeExam ? activeExam.name : "Select exam"}
+          </TextEllipsis>
+        </div>
+        <FaChevronDown
+          className={`text-gray-400 shrink-0 transition-transform duration-200 ${
+            open ? "-rotate-180" : "rotate-0"
+          }`}
+        />
+      </button>
+
+      <div
+        className={`absolute left-0 right-0 mt-2 z-40 ${
+          open ? "block" : "hidden"
+        }`}
+      >
+        <div className="rounded-lg border border-gray-200 bg-white shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-gray-100">
+            <div className="relative">
+              <FaSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Filter exams..."
+                className="w-full rounded-lg border border-gray-300 bg-white px-10 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <ul
+            ref={listRef}
+            role="listbox"
+            aria-activedescendant={filtered[highlightIndex]?._id}
+            tabIndex={-1}
+            className="max-h-44 overflow-y-auto overflow-x-hidden divide-y divide-gray-100"
+          >
+            {filtered.length === 0 && (
+              <li className="px-4 py-3 text-sm text-gray-500 text-center">
+                No exams found
+              </li>
+            )}
+
+            {filtered.map((exam, idx) => {
+              const isActive = exam._id === activeExamId;
+              const highlighted = idx === highlightIndex;
+              return (
+                <li key={exam._id}>
+                  <button
+                    id={exam._id}
+                    role="option"
+                    aria-selected={isActive}
+                    onMouseEnter={() => setHighlightIndex(idx)}
+                    onClick={() => {
+                      onSelect(exam);
+                      setOpen(false);
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between ${
+                      highlighted ? "bg-blue-50" : "hover:bg-gray-50"
+                    } ${
+                      isActive
+                        ? "font-semibold text-blue-600 bg-blue-50"
+                        : "text-gray-700 font-normal"
+                    }`}
+                  >
+                    <TextEllipsis
+                      maxW="max-w-[200px]"
+                      className={isActive ? "text-blue-600" : "text-gray-900"}
+                    >
+                      {exam.name}
+                    </TextEllipsis>
+                    {isActive && (
+                      <span className="text-xs font-medium text-blue-600 shrink-0 ml-2">
+                        Active
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ------------------------------------------------------------------------- */
+/* MAIN SIDEBAR                                                                */
+/* ------------------------------------------------------------------------- */
+export default function Sidebar({ isOpen = true, onClose }) {
   const router = useRouter();
   const pathname = usePathname();
 
+  // --- Data states ---
   const [exams, setExams] = useState([]);
   const [activeExamId, setActiveExamId] = useState(null);
   const [tree, setTree] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
   const [error, setError] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
 
+  // internal caches & dedupe
   const hasLoadedExamsRef = useRef(false);
   const treeCacheRef = useRef(new Map());
   const treeLoadingRef = useRef(new Set());
   const pendingApiRequestsRef = useRef(new Map());
 
-  // Cache limits
-  const MAX_TREE_CACHE_SIZE = 10;
+  // ui state
+  const [sidebarOpen, setSidebarOpen] = useState(isOpen);
+  const [openSubjectId, setOpenSubjectId] = useState(null);
+  const [openUnitId, setOpenUnitId] = useState(null);
+  const [openChapterId, setOpenChapterId] = useState(null);
 
-  // Debounce search query
+  // refs for auto-scrolling active items
+  const sidebarBodyRef = useRef(null);
+  const activeItemRef = useRef(null);
+
+  const MAX_TREE_CACHE_SIZE = 12;
+
+  // sync prop
+  useEffect(() => setSidebarOpen(isOpen), [isOpen]);
+
+  // debounce search
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(searchQuery);
-    }, 300);
-
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setDebouncedQuery(searchQuery), 300);
+    return () => clearTimeout(t);
   }, [searchQuery]);
 
-  // Cleanup tree cache (LRU eviction)
+  // lru eviction
   useEffect(() => {
     if (treeCacheRef.current.size > MAX_TREE_CACHE_SIZE) {
-      // Remove oldest entry (first key)
       const firstKey = treeCacheRef.current.keys().next().value;
       treeCacheRef.current.delete(firstKey);
     }
   }, [tree]);
 
+  // path segments for auto open
   const pathSegments = useMemo(
-    () => pathname.split("/").filter(Boolean),
+    () => (pathname ? pathname.split("/").filter(Boolean) : []),
     [pathname]
   );
-
   const examSlugFromPath = pathSegments[0] || "";
   const subjectSlugFromPath = pathSegments[1] || "";
   const unitSlugFromPath = pathSegments[2] || "";
@@ -120,19 +327,17 @@ const Sidebar = ({ isOpen = false, onClose }) => {
   const topicSlugFromPath = pathSegments[4] || "";
 
   const activeExam = useMemo(
-    () => exams.find((exam) => exam._id === activeExamId) || null,
+    () => exams.find((e) => e._id === activeExamId) || null,
     [exams, activeExamId]
   );
-
-  // Use stored slug if available, fallback to generating from name
   const activeExamSlug = activeExam
     ? activeExam.slug || createSlug(activeExam.name)
     : "";
 
+  // close on mobile helper
   const closeOnMobile = useCallback(() => {
-    if (onClose && typeof window !== "undefined" && window.innerWidth < 1024) {
+    if (onClose && typeof window !== "undefined" && window.innerWidth < 1024)
       onClose();
-    }
   }, [onClose]);
 
   const navigateTo = useCallback(
@@ -147,30 +352,27 @@ const Sidebar = ({ isOpen = false, onClose }) => {
     [activeExamSlug, router, closeOnMobile]
   );
 
-  const loadExams = useCallback(async (forceRefresh = false) => {
-    if (!forceRefresh && hasLoadedExamsRef.current) return;
+  /* -------------------- API: exams -------------------- */
+  const loadExams = useCallback(async (force = false) => {
+    if (!force && hasLoadedExamsRef.current) return;
     hasLoadedExamsRef.current = true;
     try {
       setError("");
-      const response = await fetchExams({ limit: 100 });
-      setExams(response || []);
+      const res = await fetchExams({ limit: 200 });
+      setExams(res || []);
     } catch (err) {
-      logger.error("Error loading exams:", err);
+      logger.error("loadExams error", err);
       setError("Unable to load exams.");
-      // Reset ref on error to allow retry
       hasLoadedExamsRef.current = false;
     }
   }, []);
 
-  // Transform tree data from API to sidebar format
+  /* -------------------- transform tree -------------------- */
   const transformTreeData = useCallback((treeData) => {
     if (!treeData || treeData.length === 0) return [];
-
-    // Find the exam in the tree (should be first or match by ID)
     const exam = treeData[0];
     if (!exam || !exam.subjects) return [];
 
-    // Transform subjects to sidebar format
     return exam.subjects.map((subject) => ({
       ...buildNode(subject),
       units: (subject.units || []).map((unit) => ({
@@ -183,6 +385,7 @@ const Sidebar = ({ isOpen = false, onClose }) => {
     }));
   }, []);
 
+  /* -------------------- load tree with dedupe & cache -------------------- */
   const loadTree = useCallback(
     async (examId) => {
       if (!examId) {
@@ -199,26 +402,19 @@ const Sidebar = ({ isOpen = false, onClose }) => {
         return;
       }
 
-      if (treeLoadingRef.current.has(examId)) {
-        return;
-      }
+      if (treeLoadingRef.current.has(examId)) return;
 
       treeLoadingRef.current.add(examId);
       setTreeLoading(true);
       setError("");
 
       try {
-        // Request deduplication: check if request is already pending
-        const requestKey = `tree-${examId}`;
-        if (pendingApiRequestsRef.current.has(requestKey)) {
-          // Wait for existing request
-          const existingRequest = pendingApiRequestsRef.current.get(requestKey);
+        const key = `tree-${examId}`;
+        if (pendingApiRequestsRef.current.has(key)) {
+          const existing = pendingApiRequestsRef.current.get(key);
           try {
-            await existingRequest;
-          } catch {
-            // Ignore errors from other requests
-          }
-          // Re-check cache after waiting
+            await existing;
+          } catch {}
           if (treeCacheRef.current.has(examId)) {
             setTree(treeCacheRef.current.get(examId));
             setTreeLoading(false);
@@ -228,15 +424,13 @@ const Sidebar = ({ isOpen = false, onClose }) => {
           }
         }
 
-        // Create new request and store it - Single API call to fetch entire tree
-        const treePromise = fetchTree({ examId, status: "active" });
-        pendingApiRequestsRef.current.set(requestKey, treePromise);
+        const promise = fetchTree({ examId, status: "active" });
+        pendingApiRequestsRef.current.set(key, promise);
 
-        const treeData = await treePromise;
-        pendingApiRequestsRef.current.delete(requestKey);
+        const treeData = await promise;
+        pendingApiRequestsRef.current.delete(key);
 
         if (!treeData || treeData.length === 0) {
-          logger.warn("Sidebar: No tree data found for examId:", examId);
           setError("No navigation data available for this exam.");
           setTree([]);
           setTreeLoading(false);
@@ -244,25 +438,21 @@ const Sidebar = ({ isOpen = false, onClose }) => {
           return;
         }
 
-        // Transform API response to sidebar format
-        const transformedTree = transformTreeData(treeData);
-
-        if (transformedTree.length === 0) {
-          logger.warn("Sidebar: No subjects found in tree for examId:", examId);
+        const transformed = transformTreeData(treeData);
+        if (transformed.length === 0) {
           setError("No subjects found for this exam.");
           setTree([]);
         } else {
-          treeCacheRef.current.set(examId, transformedTree);
-          setTree(transformedTree);
+          treeCacheRef.current.set(examId, transformed);
+          setTree(transformed);
           setError("");
         }
       } catch (err) {
-        logger.error("Error loading sidebar tree:", {
-          message: err.message,
-          stack: err.stack,
+        logger.error("loadTree error", {
+          message: err?.message,
+          stack: err?.stack,
           examId,
         });
-        // Clean up pending requests on error
         pendingApiRequestsRef.current.delete(`tree-${examId}`);
         setError("Unable to load sidebar content.");
         setTree([]);
@@ -274,244 +464,447 @@ const Sidebar = ({ isOpen = false, onClose }) => {
     [transformTreeData]
   );
 
+  /* -------------------- lifecycle -------------------- */
   useEffect(() => {
     loadExams();
-    
-    // Refresh exams periodically (every 2 minutes) to catch new exams
-    const refreshInterval = setInterval(() => {
-      loadExams(true); // Force refresh
-    }, 2 * 60 * 1000); // 2 minutes
-    
-    // Also refresh when window regains focus
-    const handleFocus = () => {
-      loadExams(true);
-    };
-    window.addEventListener('focus', handleFocus);
-    
+    const interval = setInterval(() => loadExams(true), 2 * 60 * 1000);
+    const onFocus = () => loadExams(true);
+    window.addEventListener("focus", onFocus);
     return () => {
-      clearInterval(refreshInterval);
-      window.removeEventListener('focus', handleFocus);
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
     };
   }, [loadExams]);
 
+  // set active exam id from path or default
   useEffect(() => {
-    if (exams.length === 0) return;
-
-    const matchedExam =
-      findByIdOrSlug(exams, examSlugFromPath) || exams[0] || null;
-
-    if (matchedExam?._id && matchedExam._id !== activeExamId) {
-      setActiveExamId(matchedExam._id);
-    } else if (!matchedExam && activeExamId && examSlugFromPath) {
-      // If exam from path doesn't match any exam, clear activeExamId
-      // This handles cases where user navigates to a non-existent exam
+    if (!exams.length) return;
+    const matched = findByIdOrSlug(exams, examSlugFromPath) || exams[0] || null;
+    if (matched?._id && matched._id !== activeExamId)
+      setActiveExamId(matched._id);
+    else if (!matched && activeExamId && examSlugFromPath)
       setActiveExamId(null);
-    }
-  }, [exams, examSlugFromPath]);
+  }, [exams, examSlugFromPath, activeExamId]);
 
+  // load tree when activeExamId changes
   useEffect(() => {
     if (!activeExamId) {
       setTree([]);
       setTreeLoading(false);
       setError("");
+      setOpenSubjectId(null);
+      setOpenUnitId(null);
+      setOpenChapterId(null);
       return;
     }
 
+    setOpenSubjectId(null);
+    setOpenUnitId(null);
+    setOpenChapterId(null);
+
     loadTree(activeExamId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeExamId]); // loadTree is stable via useCallback
+  }, [activeExamId, loadTree]);
 
+  // debounced query filtered tree
   const normalizedQuery = debouncedQuery.trim().toLowerCase();
+  const filteredTree = useMemo(() => {
+    if (!normalizedQuery) return tree;
+    const match = (t) => t && t.toLowerCase().includes(normalizedQuery);
 
-  const filteredTree = useMemo(
-    () => filterTreeByQuery(tree, normalizedQuery),
-    [tree, normalizedQuery]
-  );
+    return tree
+      .map((subject) => {
+        const subjectMatches = match(subject.name);
+        const units = (subject.units || [])
+          .map((u) => {
+            const um = subjectMatches || match(u.name);
+            const chapters = (u.chapters || [])
+              .map((c) => {
+                const cm = um || match(c.name);
+                const topics = (c.topics || []).filter((t) =>
+                  cm ? true : match(t.name)
+                );
+                if (cm || topics.length) return { ...c, topics };
+                return null;
+              })
+              .filter(Boolean);
+            if (um || chapters.length) return { ...u, chapters };
+            return null;
+          })
+          .filter(Boolean);
+        if (subjectMatches || units.length) return { ...subject, units };
+        return null;
+      })
+      .filter(Boolean);
+  }, [tree, normalizedQuery]);
 
+  // auto-open based on path
+  useEffect(() => {
+    if (!filteredTree.length || normalizedQuery) return;
+
+    if (subjectSlugFromPath) {
+      filteredTree.forEach((subject) => {
+        if (subject.slug === subjectSlugFromPath) {
+          setOpenSubjectId(subject.id);
+
+          if (unitSlugFromPath) {
+            subject.units.forEach((unit) => {
+              if (unit.slug === unitSlugFromPath) {
+                setOpenUnitId(unit.id);
+
+                if (chapterSlugFromPath) {
+                  unit.chapters.forEach((chapter) => {
+                    if (chapter.slug === chapterSlugFromPath)
+                      setOpenChapterId(chapter.id);
+                  });
+                } else if (topicSlugFromPath) {
+                  unit.chapters.forEach((chapter) => {
+                    const topicExists = chapter.topics.some(
+                      (t) => t.slug === topicSlugFromPath
+                    );
+                    if (topicExists) setOpenChapterId(chapter.id);
+                  });
+                }
+              }
+            });
+          }
+        }
+      });
+    } else {
+      const first = filteredTree[0];
+      if (first) {
+        setOpenSubjectId(first.id);
+        if (first.units.length > 0) {
+          const fu = first.units[0];
+          setOpenUnitId(fu.id);
+          if (fu.chapters.length > 0) setOpenChapterId(fu.chapters[0].id);
+        }
+      }
+    }
+  }, [
+    filteredTree,
+    subjectSlugFromPath,
+    unitSlugFromPath,
+    chapterSlugFromPath,
+    topicSlugFromPath,
+    normalizedQuery,
+  ]);
+
+  // pick list to render
+  const listToRender = filteredTree.length ? filteredTree : tree;
+
+  // auto-scroll active item into view when sidebar mounts or path changes
+  useEffect(() => {
+    if (!activeItemRef.current || !sidebarBodyRef.current || normalizedQuery)
+      return;
+
+    // Small delay to ensure DOM is updated after collapsible animations
+    const timeoutId = setTimeout(() => {
+      if (activeItemRef.current && sidebarBodyRef.current) {
+        activeItemRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "nearest",
+        });
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    filteredTree,
+    tree,
+    openSubjectId,
+    openUnitId,
+    openChapterId,
+    subjectSlugFromPath,
+    unitSlugFromPath,
+    chapterSlugFromPath,
+    topicSlugFromPath,
+    normalizedQuery,
+  ]);
+
+  // render helpers
   const renderLoading = () => (
     <div className="px-4 py-6 space-y-3">
-      {Array.from({ length: 6 }).map((_, index) => (
-        <div
-          key={index}
-          className="h-4 rounded bg-gray-200 animate-pulse"
-        ></div>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div key={i} className="h-4 rounded-lg bg-gray-200 animate-pulse" />
       ))}
     </div>
   );
 
   const renderEmpty = () => (
-    <div className="px-4 py-6 text-sm text-gray-500">
+    <div className="px-4 py-6 text-sm text-gray-600 text-center">
       {activeExam
         ? "No navigation data available for this exam."
         : "Select an exam to view its content."}
     </div>
   );
 
+  // accordion toggles (ensure single open where appropriate)
+  const toggleSubject = useCallback((subjectId) => {
+    setOpenSubjectId((prev) => (prev === subjectId ? null : subjectId));
+    setOpenUnitId(null);
+    setOpenChapterId(null);
+  }, []);
+
+  const toggleUnit = useCallback((unitId, subjectId) => {
+    setOpenSubjectId(subjectId);
+    setOpenUnitId((prev) => (prev === unitId ? null : unitId));
+    setOpenChapterId(null);
+  }, []);
+
+  const toggleChapter = useCallback((chapterId, subjectId, unitId) => {
+    setOpenSubjectId(subjectId);
+    setOpenUnitId(unitId);
+    setOpenChapterId((prev) => (prev === chapterId ? null : chapterId));
+  }, []);
+
+  // mobile handlers
+  const openSidebarMobile = useCallback(() => setSidebarOpen(true), []);
+  const closeSidebarMobile = useCallback(() => {
+    setSidebarOpen(false);
+    if (onClose) onClose();
+  }, [onClose]);
+
   return (
     <>
-      {isOpen && (
+      {/* Mobile open button */}
+      {!sidebarOpen && (
+        <button
+          className="fixed top-[74px] md:top-[106px] left-4 z-50 lg:hidden bg-blue-600 text-white p-2.5 rounded-lg shadow-md hover:bg-blue-700 transition-colors"
+          onClick={openSidebarMobile}
+          aria-label="Open sidebar"
+        >
+          <FaBars size={18} />
+        </button>
+      )}
+
+      {/* Mobile overlay */}
+      {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
-          onClick={onClose}
-          aria-hidden="true"
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          onClick={closeSidebarMobile}
         />
       )}
 
+      {/* Sidebar */}
       <aside
-        className={`fixed lg:static top-0 left-0 bottom-0 z-50 w-72 bg-white border-r border-gray-200 transform transition-transform duration-200 ease-out ${
-          isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        } lg:flex lg:flex-col h-screen lg:h-full`}
+        className={`fixed left-0 z-40 w-72 bg-white border-r border-gray-200 transform transition-transform duration-200 ease-out ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        } lg:flex lg:flex-col top-[70px] md:top-[102px] h-[calc(100vh-70px)] md:h-[calc(100vh-102px)]`}
         role="complementary"
         aria-label="Exam navigation sidebar"
       >
         <div className="flex h-full flex-col">
-          <div className="border-b border-gray-200 bg-white/95 px-4 py-4 backdrop-blur supports-backdrop-filter:bg-white/80 shrink-0">
-            <div className="flex items-center justify-between gap-3">
+          {/* Header */}
+          <div className="border-b border-gray-200 bg-white px-4 py-4 shrink-0">
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <h2 className="text-sm font-semibold text-gray-900">
+                Navigation
+              </h2>
               {onClose && (
                 <button
-                  className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 transition hover:border-gray-300 hover:bg-gray-100 active:scale-[0.98] lg:hidden"
-                  onClick={onClose}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors lg:hidden"
+                  onClick={closeSidebarMobile}
                 >
                   Close
                 </button>
               )}
             </div>
-            {exams.length > 0 && (
-              <div className="mt-3">
-                <label
-                  htmlFor="exam-selector"
-                  className="mb-1 block text-xs font-medium text-gray-500"
-                >
-                  Exam
-                </label>
-                <select
-                  id="exam-selector"
-                  aria-label="Select an exam"
-                  value={activeExamId || ""}
-                  onChange={(event) => {
-                    const nextExamId = event.target.value || "";
-                    if (!nextExamId) return;
-                    setActiveExamId(nextExamId);
-                    const nextExam =
-                      exams.find((exam) => exam._id === nextExamId) || null;
-                    if (nextExam) {
-                      // Use stored slug if available, fallback to generating from name
-                      const slug = nextExam.slug || createSlug(nextExam.name);
-                      router.push(`/${slug}`);
-                      closeOnMobile();
-                    }
-                  }}
-                  className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="" disabled>
-                    Select an exam
-                  </option>
-                  {exams.map((exam) => (
-                    <option key={exam._id} value={exam._id}>
-                      {exam.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+
+            {/* Exam dropdown */}
+            <div className="mb-4">
+              <ExamDropdown
+                exams={exams}
+                activeExamId={activeExamId}
+                onSelect={(exam) => {
+                  setActiveExamId(exam._id);
+                  const slug = exam.slug || createSlug(exam.name);
+                  router.push(`/${slug}`);
+                }}
+              />
+            </div>
+
+            {/* Search */}
             {tree.length > 0 && (
-              <div className="mt-3">
-                <label className="mb-1 block text-xs font-medium text-gray-500">
+              <div>
+                <label className="mb-2 block text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Search
                 </label>
                 <div className="relative">
-                  <FaSearch className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+                  <FaSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <input
                     type="search"
                     aria-label="Search subjects, units, chapters, and topics"
                     value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Find subjects, units, chapters, topics"
-                    className="w-full rounded-md border border-gray-200 bg-white px-9 py-2 text-sm text-gray-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search..."
+                    className="w-full rounded-lg border border-gray-300 bg-white px-10 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   />
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full border border-gray-200 px-2 py-1 text-xs font-semibold text-gray-600 transition hover:bg-gray-100"
-                    >
-                      Clear
-                    </button>
-                  )}
                 </div>
               </div>
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto scrollbar-thin scroll-smooth min-h-0">
+          {/* Body — Y-scroll only */}
+          <div
+            ref={sidebarBodyRef}
+            className="flex-1 overflow-y-auto overflow-x-hidden p-4 min-h-0 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent"
+          >
             {treeLoading && renderLoading()}
+
             {!treeLoading && error && (
-              <div className="px-4 py-6 text-sm text-red-600">{error}</div>
+              <div className="px-4 py-6 text-sm text-red-600 font-medium">
+                {error}
+              </div>
             )}
+
             {!treeLoading &&
               !error &&
-              filteredTree.length === 0 &&
+              listToRender.length === 0 &&
               renderEmpty()}
 
-            {!treeLoading && !error && filteredTree.length > 0 && (
-              <div className="px-3 py-4">
-                <ul className="space-y-2">
-                  {filteredTree.map((subject) => {
-                    const isSubjectActive =
-                      subject.slug && subject.slug === subjectSlugFromPath;
-                    return (
-                      <li
-                        key={subject.id}
-                        className="rounded-lg border border-gray-200 bg-white shadow-sm"
+            {!treeLoading && !error && listToRender.length > 0 && (
+              <div className="space-y-2">
+                {listToRender.map((subject) => {
+                  const isActiveSubject =
+                    subject.slug && subject.slug === subjectSlugFromPath;
+                  const isOpenSubject = openSubjectId === subject.id;
+
+                  return (
+                    <div
+                      key={subject.id}
+                      className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden"
+                      ref={isActiveSubject ? activeItemRef : null}
+                    >
+                      <div
+                        className={`flex items-center justify-between gap-3 px-4 py-3 ${
+                          isActiveSubject
+                            ? "bg-blue-600"
+                            : "bg-white hover:bg-gray-50"
+                        }`}
                       >
                         <button
                           onClick={() => navigateTo([subject.slug])}
-                          className={`flex w-full items-center justify-between gap-3 rounded-t-lg px-3 py-2 text-left text-sm font-semibold transition ${
-                            isSubjectActive
-                              ? "bg-blue-600 text-white shadow-inner"
-                              : "text-gray-800 hover:bg-gray-100"
+                          className={`flex-1 text-left text-sm font-semibold min-w-0 ${
+                            isActiveSubject ? "text-white" : "text-gray-900"
                           }`}
                         >
-                          <span className="truncate">{subject.name}</span>
-                          <FaChevronRight
-                            className={`h-3 w-3 shrink-0 ${
-                              isSubjectActive ? "text-white" : "text-gray-400"
-                            }`}
-                          />
+                          <TextEllipsis
+                            maxW="max-w-[200px]"
+                            className={isActiveSubject ? "text-white" : ""}
+                          >
+                            {subject.name}
+                          </TextEllipsis>
                         </button>
 
                         {subject.units.length > 0 && (
-                          <ul className="space-y-1 border-t border-gray-200 bg-gray-50 px-3 py-2">
-                            {subject.units.map((unit) => {
-                              const isUnitActive =
-                                isSubjectActive &&
-                                unit.slug === unitSlugFromPath;
-                              return (
-                                <li
-                                  key={unit.id}
-                                  className="rounded-md border border-transparent transition hover:border-gray-200"
-                                >
+                          <button
+                            onClick={() => toggleSubject(subject.id)}
+                            aria-label={
+                              isOpenSubject
+                                ? "Collapse subject"
+                                : "Expand subject"
+                            }
+                            className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+                              isActiveSubject
+                                ? "text-white hover:bg-blue-700"
+                                : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                            }`}
+                          >
+                            <FaChevronRight
+                              className={`h-3 w-3 transition-transform duration-200 ${
+                                isOpenSubject ? "rotate-90" : "rotate-0"
+                              }`}
+                            />
+                          </button>
+                        )}
+                      </div>
+
+                      <Collapsible isOpen={isOpenSubject}>
+                        <div
+                          id={`subject-${subject.id}`}
+                          className="border-t border-gray-200 bg-gray-50 px-4 py-2 space-y-1"
+                        >
+                          {(subject.units || []).map((unit) => {
+                            const isActiveUnit =
+                              isActiveSubject && unit.slug === unitSlugFromPath;
+                            const isOpenUnit = openUnitId === unit.id;
+
+                            return (
+                              <div
+                                key={unit.id}
+                                className="rounded-lg transition-colors"
+                                ref={isActiveUnit ? activeItemRef : null}
+                              >
+                                <div className="flex items-center justify-between gap-2">
                                   <button
                                     onClick={() =>
                                       navigateTo([subject.slug, unit.slug])
                                     }
-                                    className={`w-full rounded px-3 py-2 text-left text-sm transition-colors ${
-                                      isUnitActive
-                                        ? "bg-blue-100 text-blue-700 font-semibold"
-                                        : "text-gray-700 hover:bg-white"
+                                    className={`flex-1 text-left rounded-lg px-3 py-2 text-sm font-medium transition-colors min-w-0 ${
+                                      isActiveUnit
+                                        ? "bg-blue-50 text-blue-700"
+                                        : "text-gray-700 hover:bg-gray-100"
                                     }`}
                                   >
-                                    {unit.name}
+                                    <TextEllipsis
+                                      maxW="max-w-[180px]"
+                                      className={
+                                        isActiveUnit ? "text-blue-700" : ""
+                                      }
+                                    >
+                                      {unit.name}
+                                    </TextEllipsis>
                                   </button>
 
                                   {unit.chapters.length > 0 && (
-                                    <ul className="mt-1 space-y-1 border-l border-gray-200 pl-3">
-                                      {unit.chapters.map((chapter) => {
-                                        const isChapterActive =
-                                          isUnitActive &&
-                                          chapter.slug === chapterSlugFromPath;
-                                        return (
-                                          <li key={chapter.id}>
+                                    <button
+                                      onClick={() =>
+                                        toggleUnit(unit.id, subject.id)
+                                      }
+                                      aria-label={
+                                        isOpenUnit
+                                          ? "Collapse unit"
+                                          : "Expand unit"
+                                      }
+                                      className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+                                        isActiveUnit
+                                          ? "text-blue-600 hover:bg-blue-100"
+                                          : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                                      }`}
+                                    >
+                                      <FaChevronRight
+                                        className={`h-3 w-3 transition-transform duration-200 ${
+                                          isOpenUnit ? "rotate-90" : "rotate-0"
+                                        }`}
+                                      />
+                                    </button>
+                                  )}
+                                </div>
+
+                                <Collapsible isOpen={isOpenUnit}>
+                                  <div
+                                    id={`unit-${unit.id}`}
+                                    className="mt-1 ml-3 space-y-1 border-l-2 border-gray-200 pl-3"
+                                  >
+                                    {(unit.chapters || []).map((chapter) => {
+                                      const isActiveChapter =
+                                        isActiveUnit &&
+                                        chapter.slug === chapterSlugFromPath;
+                                      const isOpenChapter =
+                                        openChapterId === chapter.id;
+
+                                      return (
+                                        <div
+                                          key={chapter.id}
+                                          ref={
+                                            isActiveChapter
+                                              ? activeItemRef
+                                              : null
+                                          }
+                                          className="space-y-1"
+                                        >
+                                          <div className="flex items-center justify-between gap-2">
                                             <button
                                               onClick={() =>
                                                 navigateTo([
@@ -520,24 +913,75 @@ const Sidebar = ({ isOpen = false, onClose }) => {
                                                   chapter.slug,
                                                 ])
                                               }
-                                              className={`w-full rounded px-3 py-2 text-left text-xs transition-colors ${
-                                                isChapterActive
-                                                  ? "bg-blue-50 text-blue-700 font-semibold"
+                                              className={`flex-1 rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors min-w-0 ${
+                                                isActiveChapter
+                                                  ? "bg-blue-50 text-blue-700"
                                                   : "text-gray-600 hover:bg-gray-100"
                                               }`}
                                             >
-                                              {chapter.name}
+                                              <TextEllipsis
+                                                maxW="max-w-[160px]"
+                                                className={
+                                                  isActiveChapter
+                                                    ? "text-blue-700"
+                                                    : ""
+                                                }
+                                              >
+                                                {chapter.name}
+                                              </TextEllipsis>
                                             </button>
 
                                             {chapter.topics.length > 0 && (
-                                              <ul className="mt-1 space-y-1 border-l border-gray-200 pl-3">
-                                                {chapter.topics.map((topic) => {
+                                              <button
+                                                onClick={() =>
+                                                  toggleChapter(
+                                                    chapter.id,
+                                                    subject.id,
+                                                    unit.id
+                                                  )
+                                                }
+                                                aria-label={
+                                                  isOpenChapter
+                                                    ? "Collapse chapter"
+                                                    : "Expand chapter"
+                                                }
+                                                className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+                                                  isActiveChapter
+                                                    ? "text-blue-600 hover:bg-blue-100"
+                                                    : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                                                }`}
+                                              >
+                                                <FaChevronRight
+                                                  className={`h-3 w-3 transition-transform duration-200 ${
+                                                    isOpenChapter
+                                                      ? "rotate-90"
+                                                      : "rotate-0"
+                                                  }`}
+                                                />
+                                              </button>
+                                            )}
+                                          </div>
+
+                                          <Collapsible isOpen={isOpenChapter}>
+                                            <div
+                                              id={`chapter-${chapter.id}`}
+                                              className="mt-1 ml-3 space-y-0.5 border-l-2 border-gray-200 pl-3"
+                                            >
+                                              {(chapter.topics || []).map(
+                                                (topic) => {
                                                   const isTopicActive =
-                                                    isChapterActive &&
+                                                    isActiveChapter &&
                                                     topic.slug ===
                                                       topicSlugFromPath;
                                                   return (
-                                                    <li key={topic.id}>
+                                                    <div
+                                                      key={topic.id}
+                                                      ref={
+                                                        isTopicActive
+                                                          ? activeItemRef
+                                                          : null
+                                                      }
+                                                    >
                                                       <button
                                                         onClick={() =>
                                                           navigateTo([
@@ -547,33 +991,42 @@ const Sidebar = ({ isOpen = false, onClose }) => {
                                                             topic.slug,
                                                           ])
                                                         }
-                                                        className={`w-full rounded px-3 py-1.5 text-left text-xs transition-colors ${
+                                                        className={`w-full rounded-lg px-3 py-1.5 text-left text-xs font-normal transition-colors ${
                                                           isTopicActive
-                                                            ? "bg-blue-600 text-white font-semibold"
+                                                            ? "bg-blue-600 text-white"
                                                             : "text-gray-600 hover:bg-gray-100"
                                                         }`}
                                                       >
-                                                        {topic.name}
+                                                        <TextEllipsis
+                                                          maxW="max-w-[140px]"
+                                                          className={
+                                                            isTopicActive
+                                                              ? "text-white"
+                                                              : ""
+                                                          }
+                                                        >
+                                                          {topic.name}
+                                                        </TextEllipsis>
                                                       </button>
-                                                    </li>
+                                                    </div>
                                                   );
-                                                })}
-                                              </ul>
-                                            )}
-                                          </li>
-                                        );
-                                      })}
-                                    </ul>
-                                  )}
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                                                }
+                                              )}
+                                            </div>
+                                          </Collapsible>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </Collapsible>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </Collapsible>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -581,6 +1034,4 @@ const Sidebar = ({ isOpen = false, onClose }) => {
       </aside>
     </>
   );
-};
-
-export default Sidebar;
+}

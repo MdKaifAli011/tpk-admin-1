@@ -51,7 +51,7 @@ const Navbar = ({ onMenuToggle, isMenuOpen }) => {
   ];
 
   return (
-    <nav className="fixed top-0 left-0 right-0 w-full z-[60]">
+    <nav className="fixed top-0 left-0 right-0 w-full z-50">
       {/* Top Bar - Dark Gray */}
       <div className="bg-gray-800 text-white text-xs py-2 hidden md:block">
         <div className="container mx-auto px-4">

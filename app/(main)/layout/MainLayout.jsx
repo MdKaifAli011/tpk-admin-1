@@ -54,8 +54,7 @@ const MainLayout = ({ children }) => {
         {/* Navbar - Fixed at top */}
         <Navbar onMenuToggle={toggleSidebar} isMenuOpen={isSidebarOpen} />
 
-        {/* Spacer for fixed navbar - Mobile: ~70px, Desktop: ~102px (top bar + main nav) */}
-        <div className="h-[70px] md:h-[102px] flex-shrink-0" />
+        {/* No spacer needed - main content has pt to account for navbar */}
 
         {/* Sidebar + Main Content */}
         <div className="flex flex-1 relative">
@@ -65,13 +64,13 @@ const MainLayout = ({ children }) => {
           {/* Mobile Overlay */}
           {isSidebarOpen && (
             <div
-              className="fixed inset-0 bg-black bg-opacity-50 z-[40] lg:hidden"
+              className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
               onClick={closeSidebar}
             />
           )}
 
-          {/* Main content */}
-          <main className="flex-1 p-4 md:p-6 bg-white overflow-y-auto w-full lg:w-auto">
+          {/* Main content - Account for navbar height (pt) and sidebar width (ml on desktop) */}
+          <main className="flex-1 pt-[70px] md:pt-[102px] lg:ml-72 p-4 md:p-6 bg-white overflow-y-auto overflow-x-hidden min-h-0">
             <div className="w-full max-w-7xl mx-auto">
               <Suspense
                 fallback={
