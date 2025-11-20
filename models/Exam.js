@@ -15,6 +15,11 @@ const examSchema = new mongoose.Schema(
       sparse: true,
       trim: true,
     },
+    orderNumber: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
     status: {
       type: String,
       enum: ["active", "inactive", "draft"],
@@ -26,6 +31,9 @@ const examSchema = new mongoose.Schema(
 
 // Index for slug
 examSchema.index({ slug: 1 });
+
+// Index for orderNumber (for sorting)
+examSchema.index({ orderNumber: 1 });
 
 // Pre-save hook to auto-generate slug
 examSchema.pre("save", async function (next) {
@@ -51,7 +59,7 @@ examSchema.pre("save", async function (next) {
   next();
 });
 
-// Cascading delete: When an Exam is deleted, delete all related Subjects, Units, Chapters, Topics, and SubTopics
+// Cascading delete: When an Exam is deleted, delete all related Subjects, Units, Chapters, Definitions, Topics, and SubTopics
 examSchema.pre("findOneAndDelete", async function () {
   try {
     const exam = await this.model.findOne(this.getQuery());
@@ -66,6 +74,8 @@ examSchema.pre("findOneAndDelete", async function () {
       const Chapter = mongoose.models.Chapter || mongoose.model("Chapter");
       const Topic = mongoose.models.Topic || mongoose.model("Topic");
       const SubTopic = mongoose.models.SubTopic || mongoose.model("SubTopic");
+      const Definition = mongoose.models.Definition || mongoose.model("Definition");
+      const DefinitionDetails = mongoose.models.DefinitionDetails || mongoose.model("DefinitionDetails");
       const ExamDetails = mongoose.models.ExamDetails || mongoose.model("ExamDetails");
 
       // Delete exam details first
@@ -79,6 +89,30 @@ examSchema.pre("findOneAndDelete", async function () {
       const subTopicsResult = await SubTopic.deleteMany({ examId: exam._id });
       console.log(
         `🗑️ Cascading delete: Deleted ${subTopicsResult.deletedCount} SubTopics for exam ${exam._id}`
+      );
+
+      // Find all definitions for this exam
+      const definitions = await Definition.find({ examId: exam._id });
+      const definitionIds = definitions.map((definition) => definition._id);
+      console.log(
+        `🗑️ Found ${definitions.length} definitions for exam ${exam._id}`
+      );
+
+      // Delete all definition details
+      let definitionDetailsResult = { deletedCount: 0 };
+      if (definitionIds.length > 0) {
+        definitionDetailsResult = await DefinitionDetails.deleteMany({
+          definitionId: { $in: definitionIds },
+        });
+      }
+      console.log(
+        `🗑️ Cascading delete: Deleted ${definitionDetailsResult.deletedCount} DefinitionDetails for exam ${exam._id}`
+      );
+
+      // Delete all definitions
+      const definitionsResult = await Definition.deleteMany({ examId: exam._id });
+      console.log(
+        `🗑️ Cascading delete: Deleted ${definitionsResult.deletedCount} Definitions for exam ${exam._id}`
       );
 
       const topicsResult = await Topic.deleteMany({ examId: exam._id });

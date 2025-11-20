@@ -23,6 +23,11 @@ const ALL_MENU_ITEMS = [
     href: "/admin/sub-topic",
     icon: FaRegFolderOpen,
   },
+  {
+    name:"Definitions Management",
+    href: "/admin/definitions",
+    icon: FaRegFolderOpen,
+  },
 
   {
     name: "Practice Test Management",

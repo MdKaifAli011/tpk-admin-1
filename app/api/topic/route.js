@@ -142,8 +142,9 @@ export async function POST(request) {
         );
       }
 
-      // Capitalize first letter of each word in topic name
-      const topicName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+      // Capitalize first letter of each word in topic name (excluding And, Of, Or, In)
+      const { toTitleCase } = await import("@/utils/titleCase");
+      const topicName = toTitleCase(name);
 
       // Duplicate name within same chapter check
       const existingTopic = await Topic.findOne({

@@ -57,8 +57,9 @@ export async function PUT(request, { params }) {
       return notFoundResponse(ERROR_MESSAGES.UNIT_NOT_FOUND);
     }
 
-    // Capitalize first letter of each word in unit name
-    const unitName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in unit name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const unitName = toTitleCase(name);
 
     // Prepare update data (content/SEO fields are now in UnitDetails)
     const updateData = {
@@ -104,7 +105,8 @@ export async function PATCH(request, { params }) {
     const updateData = {};
     if (orderNumber !== undefined) updateData.orderNumber = orderNumber;
     if (name !== undefined) {
-      updateData.name = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+      const { toTitleCase } = await import("@/utils/titleCase");
+      updateData.name = toTitleCase(name);
     }
     if (subjectId !== undefined) updateData.subjectId = subjectId;
     if (examId !== undefined) updateData.examId = examId;

@@ -1,6 +1,10 @@
 /**
- * Migration script to backfill slugs for existing records
- * Run this once after adding slug fields to models
+ * Migration script to regenerate slugs for all records
+ * This script will:
+ * - Process ALL records (not just those without slugs)
+ * - Regenerate slugs based on current names
+ * - Update slugs if they differ from the generated slug
+ * - Ensure unique slugs within their respective scopes
  *
  * Usage: node scripts/migrateSlugs.js
  */
@@ -10,12 +14,16 @@ import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
-// Load environment variables
-dotenv.config();
-
-// Get current directory for ES modules
+// Load environment variables from project root
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const projectRoot = join(__dirname, '..');
+dotenv.config({ path: join(projectRoot, '.env.local') });
+// Fallback to .env if .env.local doesn't exist
+if (!process.env.MONGODB_URI) {
+  dotenv.config({ path: join(projectRoot, '.env') });
+}
+
 
 // Import models using relative paths
 import Exam from "../models/Exam.js";
@@ -57,10 +65,11 @@ async function migrateSlugs() {
     console.log("🔄 Starting slug migration...");
     await connectDB();
 
-    // Migrate Exams
+    // Migrate Exams (regenerate all slugs)
     console.log("\n📝 Migrating Exam slugs...");
-    const exams = await Exam.find({ slug: { $exists: false } });
+    const exams = await Exam.find({});
     let examCount = 0;
+    let examUpdated = 0;
     for (const exam of exams) {
       const baseSlug = createSlug(exam.name);
       const checkExists = async (slug, excludeId) => {
@@ -71,16 +80,21 @@ async function migrateSlugs() {
         const existing = await Exam.findOne(query);
         return !!existing;
       };
-      exam.slug = await generateUniqueSlug(baseSlug, checkExists, exam._id);
-      await exam.save();
+      const newSlug = await generateUniqueSlug(baseSlug, checkExists, exam._id);
+      if (exam.slug !== newSlug) {
+        exam.slug = newSlug;
+        await exam.save();
+        examUpdated++;
+      }
       examCount++;
     }
-    console.log(`✅ Migrated ${examCount} Exam slugs`);
+    console.log(`✅ Processed ${examCount} Exams, Updated ${examUpdated} slugs`);
 
-    // Migrate Subjects
+    // Migrate Subjects (regenerate all slugs)
     console.log("\n📝 Migrating Subject slugs...");
-    const subjects = await Subject.find({ slug: { $exists: false } });
+    const subjects = await Subject.find({});
     let subjectCount = 0;
+    let subjectUpdated = 0;
     for (const subject of subjects) {
       const baseSlug = createSlug(subject.name);
       const checkExists = async (slug, excludeId) => {
@@ -91,20 +105,25 @@ async function migrateSlugs() {
         const existing = await Subject.findOne(query);
         return !!existing;
       };
-      subject.slug = await generateUniqueSlug(
+      const newSlug = await generateUniqueSlug(
         baseSlug,
         checkExists,
         subject._id
       );
-      await subject.save();
+      if (subject.slug !== newSlug) {
+        subject.slug = newSlug;
+        await subject.save();
+        subjectUpdated++;
+      }
       subjectCount++;
     }
-    console.log(`✅ Migrated ${subjectCount} Subject slugs`);
+    console.log(`✅ Processed ${subjectCount} Subjects, Updated ${subjectUpdated} slugs`);
 
-    // Migrate Units
+    // Migrate Units (regenerate all slugs)
     console.log("\n📝 Migrating Unit slugs...");
-    const units = await Unit.find({ slug: { $exists: false } });
+    const units = await Unit.find({});
     let unitCount = 0;
+    let unitUpdated = 0;
     for (const unit of units) {
       const baseSlug = createSlug(unit.name);
       const checkExists = async (slug, excludeId) => {
@@ -115,16 +134,21 @@ async function migrateSlugs() {
         const existing = await Unit.findOne(query);
         return !!existing;
       };
-      unit.slug = await generateUniqueSlug(baseSlug, checkExists, unit._id);
-      await unit.save();
+      const newSlug = await generateUniqueSlug(baseSlug, checkExists, unit._id);
+      if (unit.slug !== newSlug) {
+        unit.slug = newSlug;
+        await unit.save();
+        unitUpdated++;
+      }
       unitCount++;
     }
-    console.log(`✅ Migrated ${unitCount} Unit slugs`);
+    console.log(`✅ Processed ${unitCount} Units, Updated ${unitUpdated} slugs`);
 
-    // Migrate Chapters
+    // Migrate Chapters (regenerate all slugs)
     console.log("\n📝 Migrating Chapter slugs...");
-    const chapters = await Chapter.find({ slug: { $exists: false } });
+    const chapters = await Chapter.find({});
     let chapterCount = 0;
+    let chapterUpdated = 0;
     for (const chapter of chapters) {
       const baseSlug = createSlug(chapter.name);
       const checkExists = async (slug, excludeId) => {
@@ -135,20 +159,25 @@ async function migrateSlugs() {
         const existing = await Chapter.findOne(query);
         return !!existing;
       };
-      chapter.slug = await generateUniqueSlug(
+      const newSlug = await generateUniqueSlug(
         baseSlug,
         checkExists,
         chapter._id
       );
-      await chapter.save();
+      if (chapter.slug !== newSlug) {
+        chapter.slug = newSlug;
+        await chapter.save();
+        chapterUpdated++;
+      }
       chapterCount++;
     }
-    console.log(`✅ Migrated ${chapterCount} Chapter slugs`);
+    console.log(`✅ Processed ${chapterCount} Chapters, Updated ${chapterUpdated} slugs`);
 
-    // Migrate Topics
+    // Migrate Topics (regenerate all slugs)
     console.log("\n📝 Migrating Topic slugs...");
-    const topics = await Topic.find({ slug: { $exists: false } });
+    const topics = await Topic.find({});
     let topicCount = 0;
+    let topicUpdated = 0;
     for (const topic of topics) {
       const baseSlug = createSlug(topic.name);
       const checkExists = async (slug, excludeId) => {
@@ -159,16 +188,21 @@ async function migrateSlugs() {
         const existing = await Topic.findOne(query);
         return !!existing;
       };
-      topic.slug = await generateUniqueSlug(baseSlug, checkExists, topic._id);
-      await topic.save();
+      const newSlug = await generateUniqueSlug(baseSlug, checkExists, topic._id);
+      if (topic.slug !== newSlug) {
+        topic.slug = newSlug;
+        await topic.save();
+        topicUpdated++;
+      }
       topicCount++;
     }
-    console.log(`✅ Migrated ${topicCount} Topic slugs`);
+    console.log(`✅ Processed ${topicCount} Topics, Updated ${topicUpdated} slugs`);
 
-    // Migrate SubTopics
+    // Migrate SubTopics (regenerate all slugs)
     console.log("\n📝 Migrating SubTopic slugs...");
-    const subTopics = await SubTopic.find({ slug: { $exists: false } });
+    const subTopics = await SubTopic.find({});
     let subTopicCount = 0;
+    let subTopicUpdated = 0;
     for (const subTopic of subTopics) {
       const baseSlug = createSlug(subTopic.name);
       const checkExists = async (slug, excludeId) => {
@@ -179,34 +213,32 @@ async function migrateSlugs() {
         const existing = await SubTopic.findOne(query);
         return !!existing;
       };
-      subTopic.slug = await generateUniqueSlug(
+      const newSlug = await generateUniqueSlug(
         baseSlug,
         checkExists,
         subTopic._id
       );
-      await subTopic.save();
+      if (subTopic.slug !== newSlug) {
+        subTopic.slug = newSlug;
+        await subTopic.save();
+        subTopicUpdated++;
+      }
       subTopicCount++;
     }
-    console.log(`✅ Migrated ${subTopicCount} SubTopic slugs`);
+    console.log(`✅ Processed ${subTopicCount} SubTopics, Updated ${subTopicUpdated} slugs`);
 
     console.log("\n✅ Slug migration completed successfully!");
     console.log(`\n📊 Summary:`);
-    console.log(`   - Exams: ${examCount}`);
-    console.log(`   - Subjects: ${subjectCount}`);
-    console.log(`   - Units: ${unitCount}`);
-    console.log(`   - Chapters: ${chapterCount}`);
-    console.log(`   - Topics: ${topicCount}`);
-    console.log(`   - SubTopics: ${subTopicCount}`);
-    console.log(
-      `   - Total: ${
-        examCount +
-        subjectCount +
-        unitCount +
-        chapterCount +
-        topicCount +
-        subTopicCount
-      }`
-    );
+    console.log(`   - Exams: ${examCount} processed, ${examUpdated} updated`);
+    console.log(`   - Subjects: ${subjectCount} processed, ${subjectUpdated} updated`);
+    console.log(`   - Units: ${unitCount} processed, ${unitUpdated} updated`);
+    console.log(`   - Chapters: ${chapterCount} processed, ${chapterUpdated} updated`);
+    console.log(`   - Topics: ${topicCount} processed, ${topicUpdated} updated`);
+    console.log(`   - SubTopics: ${subTopicCount} processed, ${subTopicUpdated} updated`);
+    const totalProcessed = examCount + subjectCount + unitCount + chapterCount + topicCount + subTopicCount;
+    const totalUpdated = examUpdated + subjectUpdated + unitUpdated + chapterUpdated + topicUpdated + subTopicUpdated;
+    console.log(`   - Total Processed: ${totalProcessed}`);
+    console.log(`   - Total Updated: ${totalUpdated}`);
 
     // Close MongoDB connection
     await mongoose.connection.close();

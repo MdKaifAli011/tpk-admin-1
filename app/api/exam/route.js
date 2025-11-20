@@ -17,7 +17,7 @@ import { requireAction, requireAuth } from "@/middleware/authMiddleware";
 
 // Cache for frequently accessed queries
 export const queryCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL = 30 * 1000; // 30 seconds (reduced from 5 minutes for faster updates)
 const MAX_CACHE_SIZE = 50; // Maximum cache entries
 
 // Helper function to cleanup cache (LRU + expired entries)
@@ -70,9 +70,12 @@ export async function GET(request) {
     const cacheKey = `exams-${statusFilter}-${page}-${limit}`;
     const now = Date.now();
 
-    // Check cache (only for active status)
+    // Check cache (only for active status, and skip cache for admin requests)
+    // Skip cache if request has no-cache header (for immediate updates)
+    const noCache = request.headers.get("cache-control") === "no-cache";
     const cached = queryCache.get(cacheKey);
     if (
+      !noCache &&
       cached &&
       statusFilter === STATUS.ACTIVE &&
       now - cached.timestamp < CACHE_TTL
@@ -150,12 +153,26 @@ export async function POST(request) {
       return errorResponse("Exam with this name already exists", 409);
     }
 
+    // Auto-generate orderNumber if not provided
+    let orderNumber = body.orderNumber;
+    if (!orderNumber || orderNumber < 1) {
+      // Find the maximum orderNumber and add 1
+      const maxOrderExam = await Exam.findOne()
+        .sort({ orderNumber: -1 })
+        .select("orderNumber")
+        .lean();
+      orderNumber = maxOrderExam?.orderNumber ? maxOrderExam.orderNumber + 1 : 1;
+    }
+
     // Create new exam
     const newExam = await Exam.create({
       name: examName,
       status: body.status || STATUS.ACTIVE,
-      orderNumber: body.orderNumber || 1,
+      orderNumber: orderNumber,
     });
+
+    // Clear cache when new exam is created
+    queryCache.clear();
 
     return successResponse(newExam, "Exam created successfully", 201);
   } catch (error) {

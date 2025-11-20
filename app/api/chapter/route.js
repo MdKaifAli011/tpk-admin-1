@@ -91,8 +91,9 @@ export async function POST(request) {
     if (!subject) return errorResponse(ERROR_MESSAGES.SUBJECT_NOT_FOUND, 404);
     if (!unit) return errorResponse(ERROR_MESSAGES.UNIT_NOT_FOUND, 404);
 
-    // Capitalize first letter of each word in chapter name
-    const chapterName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in chapter name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const chapterName = toTitleCase(name);
 
     // Check if chapter name already exists in the same unit
     const existingChapter = await Chapter.findOne({

@@ -51,7 +51,7 @@ const Navbar = ({ onMenuToggle, isMenuOpen }) => {
   ];
 
   return (
-    <nav className="w-full">
+    <nav className="fixed top-0 left-0 right-0 w-full z-[60]">
       {/* Top Bar - Dark Gray */}
       <div className="bg-gray-800 text-white text-xs py-2 hidden md:block">
         <div className="container mx-auto px-4">
@@ -101,23 +101,23 @@ const Navbar = ({ onMenuToggle, isMenuOpen }) => {
       </div>
 
       {/* Main Navigation Bar - White */}
-      <div className="bg-white shadow-md sticky top-0 z-[60] w-full">
+      <div className="bg-white shadow-md w-full">
         <div className="container mx-auto px-3 sm:px-4">
           <div className="flex items-center justify-between py-2 sm:py-3">
             {/* Left: Logo */}
             <div className="flex items-center shrink-0">
               <Link href="/">
-              <Image
-                src="/logo.png"
-                alt="TestPrepKart Logo"
-                width={150}
-                height={150}
-                className="w-24 sm:w-28 md:w-32 lg:w-36 h-auto"
-                priority
-                loading="eager"
-                placeholder="blur"
-                blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PC9zdmc+"
-              />
+                <Image
+                  src="/logo.png"
+                  alt="TestPrepKart Logo"
+                  width={150}
+                  height={150}
+                  className="w-24 sm:w-28 md:w-32 lg:w-36 h-auto"
+                  priority
+                  loading="eager"
+                  placeholder="blur"
+                  blurDataURL="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTUwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjBmMGYwIi8+PC9zdmc+"
+                />
               </Link>
             </div>
 

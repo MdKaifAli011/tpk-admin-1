@@ -58,6 +58,7 @@ export const ERROR_MESSAGES = {
   CHAPTER_NOT_FOUND: "Chapter not found",
   TOPIC_NOT_FOUND: "Topic not found",
   SUBTOPIC_NOT_FOUND: "SubTopic not found",
+  DEFINITION_NOT_FOUND: "Definition not found",
 };
 
 // Success Messages

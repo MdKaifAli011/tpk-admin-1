@@ -158,6 +158,9 @@ const HomePage = () => {
     <>
       <Navbar />
 
+      {/* Spacer for fixed navbar - Mobile: ~70px, Desktop: ~102px (top bar + main nav) */}
+      <div className="h-[70px] md:h-[102px] flex-shrink-0" />
+
       {/* Hero Section */}
       <section className="bg-linear-to-b from-purple-50 via-purple-50/50 to-white py-10 sm:py-12 md:py-16 lg:py-24 xl:py-28">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">

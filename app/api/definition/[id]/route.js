@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
-import Topic from "@/models/Topic";
-import SubTopic from "@/models/SubTopic";
+import Definition from "@/models/Definition";
 import mongoose from "mongoose";
 import {
   successResponse,
@@ -24,21 +23,21 @@ export async function GET(request, { params }) {
     const { id } = await params;
 
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return errorResponse("Invalid topic ID", 400);
+      return errorResponse("Invalid definition ID", 400);
     }
 
-    const topic = await Topic.findById(id)
+    const definition = await Definition.findById(id)
       .populate("examId", "name status")
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
       .lean();
 
-    if (!topic) {
-      return notFoundResponse(ERROR_MESSAGES.TOPIC_NOT_FOUND);
+    if (!definition) {
+      return notFoundResponse(ERROR_MESSAGES.DEFINITION_NOT_FOUND);
     }
 
-    return successResponse(topic);
+    return successResponse(definition);
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.FETCH_FAILED);
   }
@@ -57,7 +56,7 @@ export async function PUT(request, { params }) {
     const body = await request.json();
 
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return errorResponse("Invalid topic ID", 400);
+      return errorResponse("Invalid definition ID", 400);
     }
 
     const {
@@ -72,22 +71,22 @@ export async function PUT(request, { params }) {
 
     // Validate required fields
     if (!name || name.trim() === "") {
-      return errorResponse("Topic name is required", 400);
+      return errorResponse("Definition name is required", 400);
     }
 
-    // Check if topic exists
-    const existingTopic = await Topic.findById(id);
-    if (!existingTopic) {
-      return notFoundResponse(ERROR_MESSAGES.TOPIC_NOT_FOUND);
+    // Check if definition exists
+    const existingDefinition = await Definition.findById(id);
+    if (!existingDefinition) {
+      return notFoundResponse(ERROR_MESSAGES.DEFINITION_NOT_FOUND);
     }
 
-    // Capitalize first letter of each word in topic name (excluding And, Of, Or, In)
+    // Capitalize first letter of each word in definition name (excluding And, Of, Or, In)
     const { toTitleCase } = await import("@/utils/titleCase");
-    const topicName = toTitleCase(name);
+    const definitionName = toTitleCase(name);
 
-    // Prepare update data (content/SEO fields are now in TopicDetails)
+    // Prepare update data (content/SEO fields are now in DefinitionDetails)
     const updateData = {
-      name: topicName,
+      name: definitionName,
     };
     if (examId) updateData.examId = examId;
     if (subjectId) updateData.subjectId = subjectId;
@@ -96,7 +95,7 @@ export async function PUT(request, { params }) {
     if (orderNumber !== undefined) updateData.orderNumber = orderNumber;
     if (status) updateData.status = status;
 
-    const updatedTopic = await Topic.findByIdAndUpdate(
+    const updatedDefinition = await Definition.findByIdAndUpdate(
       id,
       { $set: updateData },
       {
@@ -110,11 +109,11 @@ export async function PUT(request, { params }) {
       .populate("chapterId", "name orderNumber")
       .lean();
 
-    if (!updatedTopic) {
-      return notFoundResponse(ERROR_MESSAGES.TOPIC_NOT_FOUND);
+    if (!updatedDefinition) {
+      return notFoundResponse(ERROR_MESSAGES.DEFINITION_NOT_FOUND);
     }
 
-    return successResponse(updatedTopic, "Topic updated successfully");
+    return successResponse(updatedDefinition, "Definition updated successfully");
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.UPDATE_FAILED);
   }
@@ -132,16 +131,17 @@ export async function DELETE(request, { params }) {
     const { id } = await params;
 
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
-      return errorResponse("Invalid topic ID", 400);
+      return errorResponse("Invalid definition ID", 400);
     }
 
-    const deletedTopic = await Topic.findByIdAndDelete(id);
-    if (!deletedTopic) {
-      return notFoundResponse(ERROR_MESSAGES.TOPIC_NOT_FOUND);
+    const deletedDefinition = await Definition.findByIdAndDelete(id);
+    if (!deletedDefinition) {
+      return notFoundResponse(ERROR_MESSAGES.DEFINITION_NOT_FOUND);
     }
 
-    return successResponse(deletedTopic, "Topic deleted successfully");
+    return successResponse(deletedDefinition, "Definition deleted successfully");
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.DELETE_FAILED);
   }
 }
+

@@ -147,8 +147,8 @@ const Sidebar = ({ isOpen = false, onClose }) => {
     [activeExamSlug, router, closeOnMobile]
   );
 
-  const loadExams = useCallback(async () => {
-    if (hasLoadedExamsRef.current) return;
+  const loadExams = useCallback(async (forceRefresh = false) => {
+    if (!forceRefresh && hasLoadedExamsRef.current) return;
     hasLoadedExamsRef.current = true;
     try {
       setError("");
@@ -276,6 +276,22 @@ const Sidebar = ({ isOpen = false, onClose }) => {
 
   useEffect(() => {
     loadExams();
+    
+    // Refresh exams periodically (every 2 minutes) to catch new exams
+    const refreshInterval = setInterval(() => {
+      loadExams(true); // Force refresh
+    }, 2 * 60 * 1000); // 2 minutes
+    
+    // Also refresh when window regains focus
+    const handleFocus = () => {
+      loadExams(true);
+    };
+    window.addEventListener('focus', handleFocus);
+    
+    return () => {
+      clearInterval(refreshInterval);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [loadExams]);
 
   useEffect(() => {

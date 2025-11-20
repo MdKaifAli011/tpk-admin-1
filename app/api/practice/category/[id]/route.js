@@ -59,8 +59,9 @@ export async function PUT(request, { params }) {
       return notFoundResponse("Practice category not found");
     }
 
-    // Capitalize first letter of each word in category name
-    const categoryName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in category name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const categoryName = toTitleCase(name);
 
     // Check for duplicate name
     const duplicate = await PracticeCategory.findOne({
@@ -140,7 +141,8 @@ export async function PATCH(request, { params }) {
 
     // Allow partial updates
     if (body.name !== undefined) {
-      const categoryName = body.name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+      const { toTitleCase } = await import("@/utils/titleCase");
+      const categoryName = toTitleCase(body.name);
       updateData.name = categoryName;
     }
     if (body.description !== undefined) updateData.description = body.description;

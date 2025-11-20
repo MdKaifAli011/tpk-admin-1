@@ -51,8 +51,11 @@ const MainLayout = ({ children }) => {
   return (
     <ErrorBoundary>
       <div className="flex flex-col min-h-screen bg-gray-50">
-        {/* Navbar */}
+        {/* Navbar - Fixed at top */}
         <Navbar onMenuToggle={toggleSidebar} isMenuOpen={isSidebarOpen} />
+
+        {/* Spacer for fixed navbar - Mobile: ~70px, Desktop: ~102px (top bar + main nav) */}
+        <div className="h-[70px] md:h-[102px] flex-shrink-0" />
 
         {/* Sidebar + Main Content */}
         <div className="flex flex-1 relative">

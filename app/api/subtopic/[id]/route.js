@@ -55,8 +55,9 @@ export async function PUT(request, { params }) {
       return notFoundResponse(ERROR_MESSAGES.SUBTOPIC_NOT_FOUND);
     }
 
-    // Capitalize first letter of each word in subtopic name
-    const subTopicName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in subtopic name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const subTopicName = toTitleCase(name);
 
     // Prepare update data (content/SEO fields are now in SubTopicDetails)
     const updateData = {

@@ -91,8 +91,9 @@ export async function PUT(request, { params }) {
       return notFoundResponse("Practice subcategory not found");
     }
 
-    // Capitalize first letter of each word in subcategory name
-    const subCategoryName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in subcategory name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const subCategoryName = toTitleCase(name);
 
     // Check for duplicate name within the same category (excluding current subcategory)
     const duplicate = await PracticeSubCategory.findOne({
@@ -231,7 +232,8 @@ export async function PATCH(request, { params }) {
 
     // Allow partial updates
     if (body.name !== undefined) {
-      const subCategoryName = body.name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+      const { toTitleCase } = await import("@/utils/titleCase");
+      const subCategoryName = toTitleCase(body.name);
       // Check for duplicate name
       const duplicate = await PracticeSubCategory.findOne({
         name: subCategoryName,

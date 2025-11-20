@@ -55,8 +55,9 @@ export async function PUT(request, { params }) {
       return notFoundResponse(ERROR_MESSAGES.CHAPTER_NOT_FOUND);
     }
 
-    // Capitalize first letter of each word in chapter name
-    const chapterName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in chapter name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const chapterName = toTitleCase(name);
 
     // Prepare update data (content/SEO fields are now in ChapterDetails)
     const updateData = {

@@ -67,8 +67,9 @@ export async function PUT(request, { params }) {
       return notFoundResponse(ERROR_MESSAGES.SUBJECT_NOT_FOUND);
     }
 
-    // Capitalize first letter of each word in subject name
-    const subjectName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in subject name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const subjectName = toTitleCase(name);
 
     // Check for duplicate name
     const duplicate = await Subject.findOne({

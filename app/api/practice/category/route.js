@@ -134,8 +134,9 @@ export async function POST(request) {
       }
     }
 
-    // Capitalize first letter of each word in category name
-    const categoryName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in category name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const categoryName = toTitleCase(name);
 
     // Check for duplicate category name within the same exam
     const existingCategory = await PracticeCategory.findOne({

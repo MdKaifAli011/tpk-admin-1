@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
-import SubTopic from "@/models/SubTopic";
+import Definition from "@/models/Definition";
 import Exam from "@/models/Exam";
 import Subject from "@/models/Subject";
 import Unit from "@/models/Unit";
 import Chapter from "@/models/Chapter";
-import Topic from "@/models/Topic";
 import mongoose from "mongoose";
 import { parsePagination, createPaginationResponse } from "@/utils/pagination";
 import { successResponse, errorResponse, handleApiError } from "@/utils/apiResponse";
 import { STATUS, ERROR_MESSAGES } from "@/constants";
+import { requireAuth, requireAction } from "@/middleware/authMiddleware";
 
-// ---------- GET ALL SUBTOPICS ----------
+// ---------- GET ALL DEFINITIONS ----------
 export async function GET(request) {
   try {
+    // Check authentication (all authenticated users can view)
+    const authCheck = await requireAuth(request);
+    if (authCheck.error) {
+      return NextResponse.json(authCheck, { status: authCheck.status || 401 });
+    }
+
     await connectDB();
     const { searchParams } = new URL(request.url);
     
@@ -21,69 +27,74 @@ export async function GET(request) {
     const { page, limit, skip } = parsePagination(searchParams);
     
     // Get filters (normalize status to lowercase for case-insensitive matching)
-    const topicId = searchParams.get("topicId");
+    const chapterId = searchParams.get("chapterId");
     const statusFilterParam = searchParams.get("status") || STATUS.ACTIVE;
     const statusFilter = statusFilterParam.toLowerCase();
 
     // Build query with case-insensitive status matching
     const filter = {};
-    if (topicId) {
-      if (!mongoose.Types.ObjectId.isValid(topicId)) {
-        return errorResponse("Invalid topicId", 400);
+    if (chapterId) {
+      if (!mongoose.Types.ObjectId.isValid(chapterId)) {
+        return errorResponse("Invalid chapterId", 400);
       }
-      filter.topicId = topicId;
+      filter.chapterId = chapterId;
     }
     if (statusFilter !== "all") {
       filter.status = { $regex: new RegExp(`^${statusFilter}$`, "i") };
     }
 
     // Get total count
-    const total = await SubTopic.countDocuments(filter);
+    const total = await Definition.countDocuments(filter);
 
-    // Fetch subtopics with pagination
-    const subTopics = await SubTopic.find(filter)
+    // Fetch definitions with pagination
+    const definitions = await Definition.find(filter)
       .populate("examId", "name status")
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
-      .populate("topicId", "name orderNumber")
       .sort({ orderNumber: 1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
     return NextResponse.json(
-      createPaginationResponse(subTopics, total, page, limit)
+      createPaginationResponse(definitions, total, page, limit)
     );
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.FETCH_FAILED);
   }
 }
 
-// ---------- CREATE NEW SUBTOPIC ----------
+// ---------- CREATE NEW DEFINITION ----------
 export async function POST(request) {
   try {
+    // Check authentication and permissions (users need to be able to create)
+    const authCheck = await requireAction(request, "POST");
+    if (authCheck.error) {
+      return NextResponse.json(authCheck, { status: authCheck.status || 401 });
+    }
+
     await connectDB();
     const body = await request.json();
 
     // Normalize to array to support both single and multiple creations
     const items = Array.isArray(body) ? body : [body];
 
-    // Basic shape validation on each item
+    // Basic shape validation
     for (const item of items) {
-      const { name, examId, subjectId, unitId, chapterId, topicId } =
-        item || {};
-      if (!name || !examId || !subjectId || !unitId || !chapterId || !topicId) {
+      const { name, examId, subjectId, unitId, chapterId } = item || {};
+      if (!name || !examId || !subjectId || !unitId || !chapterId) {
         return NextResponse.json(
           {
             success: false,
             message:
-              "Sub topic name, exam, subject, unit, chapter, and topic are required",
+              "Definition name, exam, subject, unit, and chapter are required",
           },
           { status: 400 }
         );
       }
-      const objectIds = { examId, subjectId, unitId, chapterId, topicId };
+
+      const objectIds = { examId, subjectId, unitId, chapterId };
       for (const [key, value] of Object.entries(objectIds)) {
         if (!mongoose.Types.ObjectId.isValid(value)) {
           return NextResponse.json(
@@ -94,13 +105,12 @@ export async function POST(request) {
       }
     }
 
-    // Verify referenced documents exist (using first item's ids; UI shares the same ids across items)
-    const { examId, subjectId, unitId, chapterId } = items[0];
-    const [exam, subject, unit, chapter] = await Promise.all([
+    // Verify referenced documents exist (using first item's ids; all items use same ids from UI)
+    const { examId, subjectId, unitId } = items[0];
+    const [exam, subject, unit] = await Promise.all([
       Exam.findById(examId),
       Subject.findById(subjectId),
       Unit.findById(unitId),
-      Chapter.findById(chapterId),
     ]);
     if (!exam)
       return NextResponse.json(
@@ -117,39 +127,35 @@ export async function POST(request) {
         { success: false, message: "Unit not found" },
         { status: 404 }
       );
-    if (!chapter)
-      return NextResponse.json(
-        { success: false, message: "Chapter not found" },
-        { status: 404 }
-      );
 
-    const createdIds = [];
+    // Process creations sequentially to compute per-chapter order and check duplicates
+    const createdDefinitions = [];
     for (const item of items) {
-      const { name, topicId } = item;
+      const { name, chapterId } = item;
 
-      // Ensure topic exists for each item
-      const topic = await Topic.findById(topicId);
-      if (!topic) {
+      // Ensure chapter exists
+      const chapter = await Chapter.findById(chapterId);
+      if (!chapter) {
         return NextResponse.json(
-          { success: false, message: "Topic not found" },
+          { success: false, message: "Chapter not found" },
           { status: 404 }
         );
       }
 
-      // Capitalize first letter of each word in subtopic name (excluding And, Of, Or, In)
+      // Capitalize first letter of each word in definition name (excluding And, Of, Or, In)
       const { toTitleCase } = await import("@/utils/titleCase");
-      const subTopicName = toTitleCase(name);
+      const definitionName = toTitleCase(name);
 
-      // Duplicate name within same topic check
-      const existingSubTopic = await SubTopic.findOne({
-        name: subTopicName,
-        topicId,
+      // Duplicate name within same chapter check
+      const existingDefinition = await Definition.findOne({
+        name: definitionName,
+        chapterId,
       });
-      if (existingSubTopic) {
+      if (existingDefinition) {
         return NextResponse.json(
           {
             success: false,
-            message: "Sub topic name already exists in this topic",
+            message: "Definition name already exists in this chapter",
           },
           { status: 409 }
         );
@@ -158,37 +164,36 @@ export async function POST(request) {
       // Determine order number
       let finalOrderNumber = item.orderNumber;
       if (!finalOrderNumber) {
-        const last = await SubTopic.findOne({ topicId })
+        const lastDefinition = await Definition.findOne({ chapterId })
           .sort({ orderNumber: -1 })
           .select("orderNumber");
-        finalOrderNumber = last ? last.orderNumber + 1 : 1;
+        finalOrderNumber = lastDefinition ? lastDefinition.orderNumber + 1 : 1;
       }
 
-      // Create new subtopic (content/SEO fields are now in SubTopicDetails)
-      const doc = await SubTopic.create({
-        name: subTopicName,
+      // Create new definition (content/SEO fields are now in DefinitionDetails)
+      const doc = await Definition.create({
+        name: definitionName,
         examId: item.examId,
         subjectId: item.subjectId,
         unitId: item.unitId,
-        chapterId: item.chapterId,
-        topicId,
+        chapterId,
         orderNumber: finalOrderNumber,
         status: item.status || STATUS.ACTIVE,
       });
-      createdIds.push(doc._id);
+      createdDefinitions.push(doc._id);
     }
 
-    const populated = await SubTopic.find({ _id: { $in: createdIds } })
+    // Populate and return
+    const populated = await Definition.find({ _id: { $in: createdDefinitions } })
       .populate("examId", "name status")
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
-      .populate("topicId", "name orderNumber")
       .lean();
 
     return successResponse(
       populated,
-      `Sub topic${createdIds.length > 1 ? "s" : ""} created successfully`,
+      `Definition${createdDefinitions.length > 1 ? "s" : ""} created successfully`,
       201
     );
   } catch (error) {

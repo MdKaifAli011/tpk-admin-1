@@ -68,7 +68,7 @@ unitSchema.pre("save", async function (next) {
   next();
 });
 
-// Cascading delete: When a Unit is deleted, delete all related Chapters, Topics, and SubTopics
+// Cascading delete: When a Unit is deleted, delete all related Chapters, Definitions, Topics, and SubTopics
 unitSchema.pre("findOneAndDelete", async function () {
   try {
     const unit = await this.model.findOne(this.getQuery());
@@ -81,6 +81,8 @@ unitSchema.pre("findOneAndDelete", async function () {
       const Chapter = mongoose.models.Chapter || mongoose.model("Chapter");
       const Topic = mongoose.models.Topic || mongoose.model("Topic");
       const SubTopic = mongoose.models.SubTopic || mongoose.model("SubTopic");
+      const Definition = mongoose.models.Definition || mongoose.model("Definition");
+      const DefinitionDetails = mongoose.models.DefinitionDetails || mongoose.model("DefinitionDetails");
       const UnitDetails = mongoose.models.UnitDetails || mongoose.model("UnitDetails");
 
       // Delete unit details first
@@ -93,6 +95,33 @@ unitSchema.pre("findOneAndDelete", async function () {
       const chapters = await Chapter.find({ unitId: unit._id });
       const chapterIds = chapters.map((chapter) => chapter._id);
       console.log(`🗑️ Found ${chapters.length} chapters for unit ${unit._id}`);
+
+      // Find all definitions in these chapters
+      const definitions = await Definition.find({ chapterId: { $in: chapterIds } });
+      const definitionIds = definitions.map((definition) => definition._id);
+      console.log(`🗑️ Found ${definitions.length} definitions for unit ${unit._id}`);
+
+      // Delete all definition details
+      let definitionDetailsResult = { deletedCount: 0 };
+      if (definitionIds.length > 0) {
+        definitionDetailsResult = await DefinitionDetails.deleteMany({
+          definitionId: { $in: definitionIds },
+        });
+      }
+      console.log(
+        `🗑️ Cascading delete: Deleted ${definitionDetailsResult.deletedCount} DefinitionDetails for unit ${unit._id}`
+      );
+
+      // Delete all definitions in these chapters
+      let definitionsResult = { deletedCount: 0 };
+      if (chapterIds.length > 0) {
+        definitionsResult = await Definition.deleteMany({
+          chapterId: { $in: chapterIds },
+        });
+      }
+      console.log(
+        `🗑️ Cascading delete: Deleted ${definitionsResult.deletedCount} Definitions for unit ${unit._id}`
+      );
 
       // Find all topics in these chapters
       const topics = await Topic.find({ chapterId: { $in: chapterIds } });

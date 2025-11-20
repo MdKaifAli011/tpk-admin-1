@@ -95,6 +95,17 @@ export async function PUT(request, { params }) {
       runValidators: true,
     });
 
+    // Clear cache when exam is updated
+    try {
+      const examRouteModule = await import("../route");
+      if (examRouteModule?.queryCache) {
+        examRouteModule.queryCache.clear();
+        logger.info("Cleared exam query cache after update");
+      }
+    } catch (cacheError) {
+      logger.warn("Could not clear exam cache:", cacheError);
+    }
+
     return successResponse(updated, "Exam updated successfully");
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.UPDATE_FAILED);
@@ -244,6 +255,17 @@ export async function DELETE(request, { params }) {
     const deleted = await Exam.findByIdAndDelete(id);
     if (!deleted) {
       return notFoundResponse(ERROR_MESSAGES.EXAM_NOT_FOUND);
+    }
+
+    // Clear cache when exam is deleted
+    try {
+      const examRouteModule = await import("../route");
+      if (examRouteModule?.queryCache) {
+        examRouteModule.queryCache.clear();
+        logger.info("Cleared exam query cache after delete");
+      }
+    } catch (cacheError) {
+      logger.warn("Could not clear exam cache:", cacheError);
     }
 
     return successResponse(deleted, "Exam deleted successfully");

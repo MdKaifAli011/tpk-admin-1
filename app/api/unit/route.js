@@ -138,8 +138,9 @@ export async function POST(request) {
       return errorResponse(ERROR_MESSAGES.EXAM_NOT_FOUND, 404);
     }
 
-    // Capitalize first letter of each word in unit name
-    const unitName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in unit name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const unitName = toTitleCase(name);
 
     // Check for duplicate unit name within the same subject
     const existingUnit = await Unit.findOne({

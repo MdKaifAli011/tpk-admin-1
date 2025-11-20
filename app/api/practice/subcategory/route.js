@@ -333,10 +333,9 @@ export async function POST(request) {
       return errorResponse("Negative marks must be a non-negative number", 400);
     }
 
-    // Capitalize first letter of each word in subcategory name
-    const subCategoryName = name
-      .trim()
-      .replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in subcategory name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const subCategoryName = toTitleCase(name);
 
     // Check for duplicate subcategory name within the same category
     const existingSubCategory = await PracticeSubCategory.findOne({

@@ -86,7 +86,7 @@ chapterSchema.pre("save", async function (next) {
   next();
 });
 
-// Cascading delete: When a Chapter is deleted, delete all related Topics and SubTopics
+// Cascading delete: When a Chapter is deleted, delete all related Definitions, Topics, and SubTopics
 chapterSchema.pre("findOneAndDelete", async function () {
   try {
     const chapter = await this.model.findOne(this.getQuery());
@@ -98,12 +98,38 @@ chapterSchema.pre("findOneAndDelete", async function () {
       // Get models - use mongoose.model() to ensure models are loaded
       const Topic = mongoose.models.Topic || mongoose.model("Topic");
       const SubTopic = mongoose.models.SubTopic || mongoose.model("SubTopic");
+      const Definition = mongoose.models.Definition || mongoose.model("Definition");
+      const DefinitionDetails = mongoose.models.DefinitionDetails || mongoose.model("DefinitionDetails");
       const ChapterDetails = mongoose.models.ChapterDetails || mongoose.model("ChapterDetails");
 
       // Delete chapter details first
       const chapterDetailsResult = await ChapterDetails.deleteMany({ chapterId: chapter._id });
       console.log(
         `🗑️ Cascading delete: Deleted ${chapterDetailsResult.deletedCount} ChapterDetails for chapter ${chapter._id}`
+      );
+
+      // Find all definitions in this chapter
+      const definitions = await Definition.find({ chapterId: chapter._id });
+      const definitionIds = definitions.map((definition) => definition._id);
+      console.log(
+        `🗑️ Found ${definitions.length} definitions for chapter ${chapter._id}`
+      );
+
+      // Delete all definition details
+      let definitionDetailsResult = { deletedCount: 0 };
+      if (definitionIds.length > 0) {
+        definitionDetailsResult = await DefinitionDetails.deleteMany({
+          definitionId: { $in: definitionIds },
+        });
+      }
+      console.log(
+        `🗑️ Cascading delete: Deleted ${definitionDetailsResult.deletedCount} DefinitionDetails for chapter ${chapter._id}`
+      );
+
+      // Delete all definitions in this chapter
+      const definitionsResult = await Definition.deleteMany({ chapterId: chapter._id });
+      console.log(
+        `🗑️ Cascading delete: Deleted ${definitionsResult.deletedCount} Definitions for chapter ${chapter._id}`
       );
 
       // Find all topics in this chapter

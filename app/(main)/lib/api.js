@@ -36,7 +36,7 @@ export const fetchExams = async (options = {}) => {
     // Use fetch for server-side, axios for client-side
     if (isServer) {
       const response = await fetch(url, {
-        next: { revalidate: 60 }, // Cache for 60 seconds
+        cache: 'no-store', // Always fetch fresh data for exams
       });
 
       if (!response.ok) {
@@ -1452,7 +1452,7 @@ export const fetchTree = async (options = {}) => {
 
     if (isServer) {
       const response = await fetch(url, {
-        next: { revalidate: 60 }, // Cache for 60 seconds
+        cache: 'no-store', // Always fetch fresh data for tree
       });
 
       if (!response.ok) {

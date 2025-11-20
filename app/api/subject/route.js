@@ -115,8 +115,9 @@ export async function POST(request) {
       return errorResponse(ERROR_MESSAGES.EXAM_NOT_FOUND, 404);
     }
 
-    // Capitalize first letter of each word in subject name
-    const subjectName = name.trim().replace(/\b\w/g, (l) => l.toUpperCase());
+    // Capitalize first letter of each word in subject name (excluding And, Of, Or, In)
+    const { toTitleCase } = await import("@/utils/titleCase");
+    const subjectName = toTitleCase(name);
 
     // Check for duplicate subject name within the same exam
     const existingSubject = await Subject.findOne({
