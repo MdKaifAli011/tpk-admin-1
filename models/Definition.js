@@ -35,7 +35,7 @@ const definitionSchema = new mongoose.Schema(
     chapterId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Chapter",
-      required: true,
+      required: false, // Made optional for backward compatibility - will be populated from topicId if missing
     },
     topicId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -61,6 +61,25 @@ definitionSchema.index({ subTopicId: 1, orderNumber: 1 }, { unique: true });
 
 // Compound index for unique slug per subTopic
 definitionSchema.index({ subTopicId: 1, slug: 1 }, { unique: true, sparse: true });
+
+// Pre-save hook to auto-populate chapterId from topicId if missing (for backward compatibility)
+definitionSchema.pre("save", async function (next) {
+  // If chapterId is missing but topicId exists, populate it from the topic
+  if ((!this.chapterId || this.chapterId === null || this.chapterId === undefined) && this.topicId) {
+    try {
+      const Topic = mongoose.models.Topic || mongoose.model("Topic");
+      const topic = await Topic.findById(this.topicId).select("chapterId").lean();
+      if (topic?.chapterId) {
+        this.chapterId = topic.chapterId;
+        console.log(`✅ Auto-populated chapterId ${topic.chapterId} from topicId ${this.topicId} for definition ${this._id || 'new'}`);
+      }
+    } catch (error) {
+      console.error("Error auto-populating chapterId from topicId:", error);
+      // Don't block save if this fails
+    }
+  }
+  next();
+});
 
 // Pre-save hook to auto-generate slug
 definitionSchema.pre("save", async function (next) {

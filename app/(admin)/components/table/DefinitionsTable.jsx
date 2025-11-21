@@ -21,7 +21,7 @@ const DefinitionsTable = ({
     router.push(`/admin/definitions/${definitionId}`);
   };
 
-  // Group definitions by Exam → Subject → Unit → Topic → SubTopic
+  // Group definitions by Exam → Subject → Unit → Chapter → Topic → SubTopic
   const groupedDefinitions = useMemo(() => {
     if (!definitions || definitions.length === 0) {
       return [];
@@ -34,11 +34,13 @@ const DefinitionsTable = ({
       const subjectName = definition.subjectId?.name || "Unassigned";
       const unitId = definition.unitId?._id || definition.unitId || "unassigned";
       const unitName = definition.unitId?.name || "Unassigned";
+      const chapterId = definition.chapterId?._id || definition.chapterId || "unassigned";
+      const chapterName = definition.chapterId?.name || "Unassigned";
       const topicId = definition.topicId?._id || definition.topicId || "unassigned";
       const topicName = definition.topicId?.name || "Unassigned";
       const subTopicId = definition.subTopicId?._id || definition.subTopicId || "unassigned";
       const subTopicName = definition.subTopicId?.name || "Unassigned";
-      const groupKey = `${examId}-${subjectId}-${unitId}-${topicId}-${subTopicId}`;
+      const groupKey = `${examId}-${subjectId}-${unitId}-${chapterId}-${topicId}-${subTopicId}`;
 
       if (!groups[groupKey]) {
         groups[groupKey] = {
@@ -48,6 +50,8 @@ const DefinitionsTable = ({
           subjectName,
           unitId,
           unitName,
+          chapterId,
+          chapterName,
           topicId,
           topicName,
           subTopicId,
@@ -58,7 +62,7 @@ const DefinitionsTable = ({
       groups[groupKey].definitions.push(definition);
     });
 
-    // Sort by exam name, then subject name, then unit name, then topic name, then subtopic name
+    // Sort by exam name, then subject name, then unit name, then chapter name, then topic name, then subtopic name
     return Object.values(groups).sort((a, b) => {
       if (a.examName !== b.examName) {
         return a.examName.localeCompare(b.examName);
@@ -68,6 +72,9 @@ const DefinitionsTable = ({
       }
       if (a.unitName !== b.unitName) {
         return a.unitName.localeCompare(b.unitName);
+      }
+      if (a.chapterName !== b.chapterName) {
+        return a.chapterName.localeCompare(b.chapterName);
       }
       if (a.topicName !== b.topicName) {
         return a.topicName.localeCompare(b.topicName);
@@ -102,7 +109,7 @@ const DefinitionsTable = ({
 
         return (
           <div
-            key={`${group.examId}-${group.subjectId}-${group.unitId}-${group.topicId}-${group.subTopicId}`}
+            key={`${group.examId}-${group.subjectId}-${group.unitId}-${group.chapterId}-${group.topicId}-${group.subTopicId}`}
             className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm"
             style={{ animationDelay: `${groupIndex * 0.1}s` }}
           >
@@ -128,6 +135,13 @@ const DefinitionsTable = ({
                   style={{ backgroundColor: "#0056FF" }}
                 >
                   {group.unitName}
+                </span>
+                <span className="text-gray-400">›</span>
+                <span
+                  className="px-2.5 py-1 rounded-full"
+                  style={{ backgroundColor: "#EF4444" }}
+                >
+                  {group.chapterName}
                 </span>
                 <span className="text-gray-400">›</span>
                 <span

@@ -26,17 +26,29 @@ export async function GET(request, { params }) {
       return errorResponse("Invalid definition ID", 400);
     }
 
-    const definition = await Definition.findById(id)
+    let definition = await Definition.findById(id)
       .populate("examId", "name status")
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
-      .populate("topicId", "name orderNumber")
+      .populate({
+        path: "topicId",
+        select: "name orderNumber chapterId",
+        populate: {
+          path: "chapterId",
+          select: "name orderNumber"
+        }
+      })
       .populate("subTopicId", "name orderNumber")
       .lean();
 
     if (!definition) {
       return notFoundResponse(ERROR_MESSAGES.DEFINITION_NOT_FOUND);
+    }
+
+    // If chapterId is missing but topicId has chapterId, use it (for backward compatibility)
+    if (!definition.chapterId && definition.topicId?.chapterId) {
+      definition.chapterId = definition.topicId.chapterId;
     }
 
     return successResponse(definition);
@@ -101,7 +113,7 @@ export async function PUT(request, { params }) {
     if (orderNumber !== undefined) updateData.orderNumber = orderNumber;
     if (status) updateData.status = status;
 
-    const updatedDefinition = await Definition.findByIdAndUpdate(
+    let updatedDefinition = await Definition.findByIdAndUpdate(
       id,
       { $set: updateData },
       {
@@ -113,9 +125,21 @@ export async function PUT(request, { params }) {
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
-      .populate("topicId", "name orderNumber")
+      .populate({
+        path: "topicId",
+        select: "name orderNumber chapterId",
+        populate: {
+          path: "chapterId",
+          select: "name orderNumber"
+        }
+      })
       .populate("subTopicId", "name orderNumber")
       .lean();
+
+    // If chapterId is missing but topicId has chapterId, use it (for backward compatibility)
+    if (!updatedDefinition.chapterId && updatedDefinition.topicId?.chapterId) {
+      updatedDefinition.chapterId = updatedDefinition.topicId.chapterId;
+    }
 
     if (!updatedDefinition) {
       return notFoundResponse(ERROR_MESSAGES.DEFINITION_NOT_FOUND);

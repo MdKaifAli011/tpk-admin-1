@@ -55,17 +55,32 @@ export async function GET(request) {
     const total = await Definition.countDocuments(filter);
 
     // Fetch definitions with pagination
-    const definitions = await Definition.find(filter)
+    let definitions = await Definition.find(filter)
       .populate("examId", "name status")
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
-      .populate("topicId", "name orderNumber")
+      .populate({
+        path: "topicId",
+        select: "name orderNumber chapterId",
+        populate: {
+          path: "chapterId",
+          select: "name orderNumber"
+        }
+      })
       .populate("subTopicId", "name orderNumber")
       .sort({ orderNumber: 1, createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
+
+    // If chapterId is missing but topicId has chapterId, use it (for backward compatibility)
+    definitions = definitions.map(def => {
+      if (!def.chapterId && def.topicId?.chapterId) {
+        def.chapterId = def.topicId.chapterId;
+      }
+      return def;
+    });
 
     return NextResponse.json(
       createPaginationResponse(definitions, total, page, limit)
@@ -93,19 +108,21 @@ export async function POST(request) {
     // Basic shape validation
     for (const item of items) {
       const { name, examId, subjectId, unitId, chapterId, topicId, subTopicId } = item || {};
-      if (!name || !examId || !subjectId || !unitId || !chapterId || !topicId || !subTopicId) {
+      // chapterId is optional - will be auto-populated from topicId if missing
+      if (!name || !examId || !subjectId || !unitId || !topicId || !subTopicId) {
         return NextResponse.json(
           {
             success: false,
             message:
-              "Definition name, exam, subject, unit, chapter, topic, and subtopic are required",
+              "Definition name, exam, subject, unit, topic, and subtopic are required",
           },
           { status: 400 }
         );
       }
 
-      const objectIds = { examId, subjectId, unitId, chapterId, topicId, subTopicId };
-      for (const [key, value] of Object.entries(objectIds)) {
+      // Validate required ObjectIds (chapterId is optional)
+      const requiredObjectIds = { examId, subjectId, unitId, topicId, subTopicId };
+      for (const [key, value] of Object.entries(requiredObjectIds)) {
         if (!mongoose.Types.ObjectId.isValid(value)) {
           return NextResponse.json(
             { success: false, message: `Invalid ${key}` },
@@ -113,17 +130,37 @@ export async function POST(request) {
           );
         }
       }
+      
+      // Validate chapterId if provided
+      if (chapterId && !mongoose.Types.ObjectId.isValid(chapterId)) {
+        return NextResponse.json(
+          { success: false, message: "Invalid chapterId" },
+          { status: 400 }
+        );
+      }
     }
 
     // Verify referenced documents exist (using first item's ids; all items use same ids from UI)
     const { examId, subjectId, unitId, chapterId, topicId, subTopicId } = items[0];
     const Chapter = (await import("@/models/Chapter")).default;
-    const [exam, subject, unit, chapter, topic, subTopic] = await Promise.all([
+    
+    // Fetch topic first to get chapterId if not provided
+    const topic = await Topic.findById(topicId);
+    if (!topic) {
+      return NextResponse.json(
+        { success: false, message: "Topic not found" },
+        { status: 404 }
+      );
+    }
+    
+    // Use provided chapterId or get it from topic
+    const finalChapterId = chapterId || topic.chapterId;
+    
+    const [exam, subject, unit, chapter, subTopic] = await Promise.all([
       Exam.findById(examId),
       Subject.findById(subjectId),
       Unit.findById(unitId),
-      Chapter.findById(chapterId),
-      Topic.findById(topicId),
+      finalChapterId ? Chapter.findById(finalChapterId) : Promise.resolve(null),
       SubTopic.findById(subTopicId),
     ]);
     if (!exam)
@@ -141,14 +178,9 @@ export async function POST(request) {
         { success: false, message: "Unit not found" },
         { status: 404 }
       );
-    if (!chapter)
+    if (finalChapterId && !chapter)
       return NextResponse.json(
         { success: false, message: "Chapter not found" },
-        { status: 404 }
-      );
-    if (!topic)
-      return NextResponse.json(
-        { success: false, message: "Topic not found" },
         { status: 404 }
       );
     if (!subTopic)
@@ -160,11 +192,36 @@ export async function POST(request) {
     // Process creations sequentially to compute per-subtopic order and check duplicates
     const createdDefinitions = [];
     for (const item of items) {
-      const { name, subTopicId } = item;
+      const { name, subTopicId, topicId, chapterId } = item;
 
       // Capitalize first letter of each word in definition name (excluding And, Of, Or, In)
       const { toTitleCase } = await import("@/utils/titleCase");
       const definitionName = toTitleCase(name);
+
+      // Auto-populate chapterId from topicId if missing (for backward compatibility)
+      let finalChapterId = item.chapterId || chapterId;
+      if (!finalChapterId && item.topicId) {
+        try {
+          const topicDoc = await Topic.findById(item.topicId).select("chapterId").lean();
+          if (topicDoc?.chapterId) {
+            finalChapterId = topicDoc.chapterId;
+            console.log(`✅ Auto-populated chapterId ${finalChapterId} from topicId ${item.topicId} for definition "${definitionName}"`);
+          }
+        } catch (error) {
+          console.error("Error fetching chapterId from topic:", error);
+        }
+      }
+      
+      // Ensure chapterId is set - if still missing, this is an error
+      if (!finalChapterId) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: "Chapter is required. Please select a chapter or ensure the topic has a chapter assigned.",
+          },
+          { status: 400 }
+        );
+      }
 
       // Duplicate name within same subtopic check
       const existingDefinition = await Definition.findOne({
@@ -196,7 +253,7 @@ export async function POST(request) {
         examId: item.examId,
         subjectId: item.subjectId,
         unitId: item.unitId,
-        chapterId: item.chapterId,
+        chapterId: finalChapterId, // Use auto-populated chapterId if original was missing
         topicId: item.topicId,
         subTopicId,
         orderNumber: finalOrderNumber,
@@ -206,14 +263,29 @@ export async function POST(request) {
     }
 
     // Populate and return
-    const populated = await Definition.find({ _id: { $in: createdDefinitions } })
+    let populated = await Definition.find({ _id: { $in: createdDefinitions } })
       .populate("examId", "name status")
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
-      .populate("topicId", "name orderNumber")
+      .populate({
+        path: "topicId",
+        select: "name orderNumber chapterId",
+        populate: {
+          path: "chapterId",
+          select: "name orderNumber"
+        }
+      })
       .populate("subTopicId", "name orderNumber")
       .lean();
+
+    // If chapterId is missing but topicId has chapterId, use it (for backward compatibility)
+    populated = populated.map(def => {
+      if (!def.chapterId && def.topicId?.chapterId) {
+        def.chapterId = def.topicId.chapterId;
+      }
+      return def;
+    });
 
     return successResponse(
       populated,

@@ -191,24 +191,36 @@ const DefinitionDetailPage = ({ definitionId }) => {
             <h1 className="text-xl font-extrabold text-gray-900">
               {isEditing ? "Edit Definition" : definition.name}
             </h1>
-            <p className="text-sm text-gray-600 mt-1">
-              <span className="font-medium text-indigo-600">Exam:</span>{" "}
-              {definition.examId?.name || "N/A"}
-              <span className="mx-2 text-gray-400">•</span>
-              <span className="font-medium text-indigo-600">Subject:</span>{" "}
-              {definition.subjectId?.name || "N/A"}
-              <span className="mx-2 text-gray-400">•</span>
-              <span className="font-medium text-indigo-600">Unit:</span>{" "}
-              {definition.unitId?.name || "N/A"}
-              <span className="mx-2 text-gray-400">•</span>
-              <span className="font-medium text-indigo-600">Chapter:</span>{" "}
-              {definition.chapterId?.name || "N/A"}
-              <span className="mx-2 text-gray-400">•</span>
-              <span className="font-medium text-indigo-600">Topic:</span>{" "}
-              {definition.topicId?.name || "N/A"}
-              <span className="mx-2 text-gray-400">•</span>
-              <span className="font-medium text-indigo-600">SubTopic:</span>{" "}
-              {definition.subTopicId?.name || "N/A"}
+            <p className="text-xs sm:text-sm text-gray-600 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>
+                <span className="font-medium text-indigo-600">Exam:</span>{" "}
+                {definition.examId?.name || "N/A"}
+              </span>
+              <span className="text-gray-400 hidden sm:inline">•</span>
+              <span>
+                <span className="font-medium text-indigo-600">Subject:</span>{" "}
+                {definition.subjectId?.name || "N/A"}
+              </span>
+              <span className="text-gray-400 hidden sm:inline">•</span>
+              <span>
+                <span className="font-medium text-indigo-600">Unit:</span>{" "}
+                {definition.unitId?.name || "N/A"}
+              </span>
+              <span className="text-gray-400 hidden sm:inline">•</span>
+              <span>
+                <span className="font-medium text-indigo-600">Chapter:</span>{" "}
+                {definition.chapterId?.name || "N/A"}
+              </span>
+              <span className="text-gray-400 hidden sm:inline">•</span>
+              <span>
+                <span className="font-medium text-indigo-600">Topic:</span>{" "}
+                {definition.topicId?.name || "N/A"}
+              </span>
+              <span className="text-gray-400 hidden sm:inline">•</span>
+              <span>
+                <span className="font-medium text-indigo-600">SubTopic:</span>{" "}
+                {definition.subTopicId?.name || "N/A"}
+              </span>
             </p>
           </div>
         </div>

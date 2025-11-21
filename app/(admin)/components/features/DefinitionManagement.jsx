@@ -923,6 +923,13 @@ const DefinitionManagement = () => {
       return;
     }
 
+    // Validate required fields
+    if (!formData.examId || !formData.subjectId || !formData.unitId || !formData.chapterId || !formData.topicId || !formData.subTopicId) {
+      setFormError("Please select Exam, Subject, Unit, Chapter, Topic, and SubTopic");
+      setIsFormLoading(false);
+      return;
+    }
+
     setIsFormLoading(true);
     setFormError(null);
 
@@ -934,7 +941,7 @@ const DefinitionManagement = () => {
           examId: formData.examId,
           subjectId: formData.subjectId,
           unitId: formData.unitId,
-          chapterId: formData.chapterId,
+          chapterId: formData.chapterId, // Ensure chapterId is always sent
           topicId: formData.topicId,
           subTopicId: formData.subTopicId,
           orderNumber: parseInt(definition.orderNumber) || nextOrderNumber + index,
@@ -964,7 +971,7 @@ const DefinitionManagement = () => {
     }
   };
 
-  const handleEditDefinition = (definitionToEdit) => {
+  const handleEditDefinition = async (definitionToEdit) => {
     // Check permissions
     if (!canEdit) {
       setFormError(getPermissionMessage("edit", role));
@@ -974,9 +981,22 @@ const DefinitionManagement = () => {
     const examId = definitionToEdit.examId?._id || definitionToEdit.examId;
     const subjectId = definitionToEdit.subjectId?._id || definitionToEdit.subjectId;
     const unitId = definitionToEdit.unitId?._id || definitionToEdit.unitId;
-    const chapterId = definitionToEdit.chapterId?._id || definitionToEdit.chapterId;
+    let chapterId = definitionToEdit.chapterId?._id || definitionToEdit.chapterId;
     const topicId = definitionToEdit.topicId?._id || definitionToEdit.topicId;
     const subTopicId = definitionToEdit.subTopicId?._id || definitionToEdit.subTopicId;
+
+    // Auto-populate chapterId from topicId if missing
+    if (!chapterId && topicId) {
+      try {
+        const topicResponse = await api.get(`/topic/${topicId}`);
+        if (topicResponse.data.success && topicResponse.data.data?.chapterId) {
+          chapterId = topicResponse.data.data.chapterId._id || topicResponse.data.data.chapterId;
+          console.log(`✅ Auto-populated chapterId ${chapterId} from topicId ${topicId} for editing definition`);
+        }
+      } catch (error) {
+        console.error("Error fetching chapterId from topic:", error);
+      }
+    }
 
     setEditingDefinition(definitionToEdit);
     setEditFormData({
@@ -984,7 +1004,7 @@ const DefinitionManagement = () => {
       examId: examId,
       subjectId: subjectId,
       unitId: unitId,
-      chapterId: chapterId,
+      chapterId: chapterId || "",
       topicId: topicId,
       subTopicId: subTopicId,
       orderNumber: definitionToEdit.orderNumber?.toString() || "",
@@ -995,12 +1015,17 @@ const DefinitionManagement = () => {
       fetchUnits(examId, subjectId).then(() => {
         if (unitId) {
           fetchChapters(unitId).then(() => {
+            // If chapterId was auto-populated, fetch topics for that chapter
             if (chapterId) {
               fetchTopics(chapterId).then(() => {
                 if (topicId) {
                   fetchSubTopics(topicId);
                 }
               });
+            } else if (topicId) {
+              // If chapterId is still missing after auto-population, just fetch subtopics
+              // Topics will be empty but that's okay - user needs to select chapter first
+              fetchSubTopics(topicId);
             }
           });
         }
@@ -1012,6 +1037,14 @@ const DefinitionManagement = () => {
 
   const handleUpdateDefinition = async (e) => {
     e.preventDefault();
+    
+    // Validate required fields
+    if (!editFormData.examId || !editFormData.subjectId || !editFormData.unitId || !editFormData.chapterId || !editFormData.topicId || !editFormData.subTopicId) {
+      setFormError("Please select Exam, Subject, Unit, Chapter, Topic, and SubTopic");
+      setIsFormLoading(false);
+      return;
+    }
+    
     setIsFormLoading(true);
     setFormError(null);
 
@@ -1021,7 +1054,7 @@ const DefinitionManagement = () => {
         examId: editFormData.examId,
         subjectId: editFormData.subjectId,
         unitId: editFormData.unitId,
-        chapterId: editFormData.chapterId,
+        chapterId: editFormData.chapterId || null, // Ensure chapterId is sent (null if empty, will be auto-populated)
         topicId: editFormData.topicId,
         subTopicId: editFormData.subTopicId,
         orderNumber: editFormData.orderNumber && editFormData.orderNumber.trim()
