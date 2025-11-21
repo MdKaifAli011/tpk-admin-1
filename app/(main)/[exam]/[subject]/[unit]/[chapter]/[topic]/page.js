@@ -1,11 +1,7 @@
 import React from "react";
 import { notFound } from "next/navigation";
 import MainLayout from "../../../../../layout/MainLayout";
-import {
-  FaBook,
-  FaFileAlt,
-} from "react-icons/fa";
-import ListItem from "../../../../../components/ListItem";
+import { FaFileAlt } from "react-icons/fa";
 import TabsClient from "../../../../../components/TabsClient";
 import NavigationClient from "../../../../../components/NavigationClient";
 import { ERROR_MESSAGES } from "@/constants";
@@ -23,13 +19,14 @@ import {
   createSlug,
   findByIdOrSlug,
   fetchTopicDetailsById,
+  fetchSubTopicDetailsById,
 } from "../../../../../lib/api";
 import {
   getNextTopic,
   getPreviousTopic,
 } from "../../../../../lib/hierarchicalNavigation";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const TopicPage = async ({ params }) => {
@@ -63,10 +60,7 @@ const TopicPage = async ({ params }) => {
   const subject = fullSubjectData || foundSubject;
 
   // Fetch units for this subject
-  const fetchedUnits = await fetchUnitsBySubject(
-    foundSubject._id,
-    examIdValue
-  );
+  const fetchedUnits = await fetchUnitsBySubject(foundSubject._id, examIdValue);
 
   // Find unit by slug
   const foundUnit = findByIdOrSlug(fetchedUnits, unitSlug);
@@ -113,6 +107,15 @@ const TopicPage = async ({ params }) => {
   ]);
 
   const topic = fullTopicData || foundTopic;
+
+  // Fetch subtopic details (content only) for all subtopics in parallel
+  const subtopicDetailsArray = await Promise.all(
+    fetchedSubTopics.map((subTopic) =>
+      fetchSubTopicDetailsById(subTopic._id)
+        .then((details) => ({ content: details?.content || "" }))
+        .catch(() => ({ content: "" }))
+    )
+  );
 
   // Find current topic index for navigation
   const index = fetchedTopics.findIndex(
@@ -207,39 +210,16 @@ const TopicPage = async ({ params }) => {
           topicId={topic._id}
           entityName={topic.name}
           entityType="topic"
+          subtopics={fetchedSubTopics.map((subTopic, index) => ({
+            ...subTopic,
+            content: subtopicDetailsArray[index]?.content || "",
+          }))}
+          examSlug={examSlug}
+          subjectSlug={subjectSlugValue}
+          unitSlug={unitSlugValue}
+          chapterSlug={chapterSlugValue}
+          topicSlug={topicSlugValue}
         />
-
-        {/* Sub Topics Section */}
-        {fetchedSubTopics.length > 0 && (
-          <section className="bg-white rounded-xl shadow-lg border border-gray-100 p-6 md:p-8">
-            <div className="flex items-center gap-3 mb-6">
-              <FaBook className="text-xl text-indigo-600" />
-              <h2 className="text-xl font-semibold text-gray-900">
-                {fetchedExam.name} &gt; {subject.name} &gt; {unit.name} &gt; {chapter.name} &gt; {topic.name} Sub Topics
-              </h2>
-            </div>
-
-            <div className="space-y-3">
-              {fetchedSubTopics.map((subTopic, index) => {
-                const subtopicSlug = subTopic.slug || createSlug(subTopic.name);
-                return (
-                  <ListItem
-                    key={subTopic._id || index}
-                    item={{
-                      name: subTopic.name,
-                      weightage: subTopic.weightage || "20%",
-                      engagement: subTopic.engagement || "2.2K",
-                      isCompleted: subTopic.isCompleted || false,
-                      progress: subTopic.progress || 0,
-                    }}
-                    index={index}
-                    href={`/${examSlug}/${subjectSlugValue}/${unitSlugValue}/${chapterSlugValue}/${topicSlugValue}/${subtopicSlug}`}
-                  />
-                );
-              })}
-            </div>
-          </section>
-        )}
 
         {/* Navigation */}
         <NavigationClient
