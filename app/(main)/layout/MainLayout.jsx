@@ -53,7 +53,7 @@ const MainLayout = ({ children }) => {
           <main
             className="
               flex-1
-              pt-[120px] md:pt-[140px]
+              pt-[110px] md:pt-[120px]
               lg:ml-[280px]
               bg-white
               overflow-y-auto

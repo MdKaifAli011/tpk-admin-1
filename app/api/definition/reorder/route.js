@@ -46,9 +46,9 @@ async function handleReorder(request) {
       }
     }
 
-    // Validate that all definitions belong to the same chapter
+    // Validate that all definitions belong to the same subtopic
     const definitionDocs = await Definition.find({ _id: { $in: definitions.map(d => d.id) } })
-      .select('chapterId');
+      .select('subTopicId');
     
     if (definitionDocs.length !== definitions.length) {
       return NextResponse.json(
@@ -58,15 +58,15 @@ async function handleReorder(request) {
     }
 
     const firstDefinition = definitionDocs[0];
-    const firstChapterId = firstDefinition.chapterId?.toString() || firstDefinition.chapterId;
+    const firstSubTopicId = firstDefinition.subTopicId?.toString() || firstDefinition.subTopicId;
 
     for (let i = 1; i < definitionDocs.length; i++) {
       const definition = definitionDocs[i];
-      const chapterId = definition.chapterId?.toString() || definition.chapterId;
+      const subTopicId = definition.subTopicId?.toString() || definition.subTopicId;
       
-      if (chapterId !== firstChapterId) {
+      if (subTopicId !== firstSubTopicId) {
         return NextResponse.json(
-          { success: false, message: "All definitions must belong to the same chapter" },
+          { success: false, message: "All definitions must belong to the same subtopic" },
           { status: 400 }
         );
       }

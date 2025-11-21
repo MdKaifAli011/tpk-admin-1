@@ -27,12 +27,18 @@ const DefinitionManagement = () => {
   const [filterUnits, setFilterUnits] = useState([]); // Separate units for filter section
   const [chapters, setChapters] = useState([]);
   const [filterChapters, setFilterChapters] = useState([]); // Separate chapters for filter section
+  const [topics, setTopics] = useState([]);
+  const [filterTopics, setFilterTopics] = useState([]); // Separate topics for filter section
+  const [subTopics, setSubTopics] = useState([]);
+  const [filterSubTopics, setFilterSubTopics] = useState([]); // Separate subtopics for filter section
   const [formData, setFormData] = useState({
     name: "",
     examId: "",
     subjectId: "",
     unitId: "",
     chapterId: "",
+    topicId: "",
+    subTopicId: "",
     orderNumber: "",
   });
   const [editFormData, setEditFormData] = useState({
@@ -41,6 +47,8 @@ const DefinitionManagement = () => {
     subjectId: "",
     unitId: "",
     chapterId: "",
+    topicId: "",
+    subTopicId: "",
     orderNumber: "",
   });
   const [additionalDefinitions, setAdditionalDefinitions] = useState([
@@ -53,6 +61,8 @@ const DefinitionManagement = () => {
   const [filterSubject, setFilterSubject] = useState("");
   const [filterUnit, setFilterUnit] = useState("");
   const [filterChapter, setFilterChapter] = useState("");
+  const [filterTopic, setFilterTopic] = useState("");
+  const [filterSubTopic, setFilterSubTopic] = useState("");
   const isFetchingRef = useRef(false);
 
   // Fetch definitions from API using Axios
@@ -130,6 +140,35 @@ const DefinitionManagement = () => {
     }
   }, []);
 
+  // Fetch topics from API based on chapter
+  const fetchTopics = useCallback(async (chapterId) => {
+    if (!chapterId) {
+      setTopics([]);
+      return;
+    }
+    try {
+      // Fetch topics for the selected chapter
+      const response = await api.get(
+        `/topic?chapterId=${chapterId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        const topicsData = response.data.data || [];
+        // Sort by orderNumber in ascending order
+        const sorted = topicsData.sort((a, b) => {
+          const ao = a.orderNumber || 0;
+          const bo = b.orderNumber || 0;
+          return ao - bo;
+        });
+        setTopics(sorted);
+      } else {
+        setTopics([]);
+      }
+    } catch (error) {
+      console.error("❌ Error fetching topics:", error);
+      setTopics([]);
+    }
+  }, []);
+
   // Fetch chapters from API based on unit
   const fetchChapters = useCallback(async (unitId) => {
     if (!unitId) {
@@ -142,7 +181,14 @@ const DefinitionManagement = () => {
         `/chapter?unitId=${unitId}&status=all&limit=1000`
       );
       if (response.data.success) {
-        setChapters(response.data.data || []);
+        const chaptersData = response.data.data || [];
+        // Sort by orderNumber in ascending order
+        const sorted = chaptersData.sort((a, b) => {
+          const ao = a.orderNumber || 0;
+          const bo = b.orderNumber || 0;
+          return ao - bo;
+        });
+        setChapters(sorted);
       } else {
         setChapters([]);
       }
@@ -152,12 +198,42 @@ const DefinitionManagement = () => {
     }
   }, []);
 
+  // Fetch subtopics from API based on topic
+  const fetchSubTopics = useCallback(async (topicId) => {
+    if (!topicId) {
+      setSubTopics([]);
+      return;
+    }
+    try {
+      // Fetch subtopics for the selected topic
+      const response = await api.get(
+        `/subtopic?topicId=${topicId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        const subtopicsData = response.data.data || [];
+        // Sort by orderNumber in ascending order
+        const sorted = subtopicsData.sort((a, b) => {
+          const ao = a.orderNumber || 0;
+          const bo = b.orderNumber || 0;
+          return ao - bo;
+        });
+        setSubTopics(sorted);
+      } else {
+        setSubTopics([]);
+      }
+    } catch (error) {
+      console.error("❌ Error fetching subtopics:", error);
+      setSubTopics([]);
+    }
+  }, []);
+
+
   // Load data on component mount
   useEffect(() => {
     fetchDefinitions();
     fetchExams();
     fetchSubjects();
-    // Don't fetch units and chapters on mount - will fetch when parent is selected
+    // Don't fetch units, topics, and subtopics on mount - will fetch when parent is selected
   }, [fetchDefinitions, fetchExams, fetchSubjects]);
 
   // Auto-clear error after 5 seconds with cleanup
@@ -192,6 +268,18 @@ const DefinitionManagement = () => {
     return units || [];
   }, [units]);
 
+  // Topics are already filtered by API call, so return all topics
+  const filteredTopics = useMemo(() => {
+    // Topics are already filtered by fetchTopics(unitId), so just return them
+    // Sort by orderNumber in ascending order
+    const sorted = (topics || []).sort((a, b) => {
+      const ao = a.orderNumber || 0;
+      const bo = b.orderNumber || 0;
+      return ao - bo;
+    });
+    return sorted;
+  }, [topics]);
+
   // Chapters are already filtered by API call, so return all chapters
   const filteredChapters = useMemo(() => {
     // Chapters are already filtered by fetchChapters(unitId), so just return them
@@ -203,6 +291,18 @@ const DefinitionManagement = () => {
     });
     return sorted;
   }, [chapters]);
+
+  // SubTopics are already filtered by API call, so return all subtopics
+  const filteredSubTopics = useMemo(() => {
+    // SubTopics are already filtered by fetchSubTopics(topicId), so just return them
+    // Sort by orderNumber in ascending order
+    const sorted = (subTopics || []).sort((a, b) => {
+      const ao = a.orderNumber || 0;
+      const bo = b.orderNumber || 0;
+      return ao - bo;
+    });
+    return sorted;
+  }, [subTopics]);
 
   // Filter subjects for edit form
   const filteredEditSubjects = useMemo(() => {
@@ -226,6 +326,18 @@ const DefinitionManagement = () => {
     return units || [];
   }, [units]);
 
+  // Topics for edit form are already filtered by API call, so return all topics
+  const filteredEditTopics = useMemo(() => {
+    // Topics are already filtered by fetchTopics(unitId), so just return them
+    // Sort by orderNumber in ascending order
+    const sorted = (topics || []).sort((a, b) => {
+      const ao = a.orderNumber || 0;
+      const bo = b.orderNumber || 0;
+      return ao - bo;
+    });
+    return sorted;
+  }, [topics]);
+
   // Chapters for edit form are already filtered by API call, so return all chapters
   const filteredEditChapters = useMemo(() => {
     // Chapters are already filtered by fetchChapters(unitId), so just return them
@@ -237,6 +349,18 @@ const DefinitionManagement = () => {
     });
     return sorted;
   }, [chapters]);
+
+  // SubTopics for edit form are already filtered by API call, so return all subtopics
+  const filteredEditSubTopics = useMemo(() => {
+    // SubTopics are already filtered by fetchSubTopics(topicId), so just return them
+    // Sort by orderNumber in ascending order
+    const sorted = (subTopics || []).sort((a, b) => {
+      const ao = a.orderNumber || 0;
+      const bo = b.orderNumber || 0;
+      return ao - bo;
+    });
+    return sorted;
+  }, [subTopics]);
 
   // Filter subjects based on selected exam for filters
   const filteredFilterSubjects = useMemo(() => {
@@ -335,6 +459,100 @@ const DefinitionManagement = () => {
     );
   }, [filterChapters, filterUnit]);
 
+  // Fetch topics for filter section
+  const fetchTopicsForFilter = useCallback(async (chapterId) => {
+    if (!chapterId) {
+      setFilterTopics([]);
+      return;
+    }
+    try {
+      const response = await api.get(
+        `/topic?chapterId=${chapterId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        const topicsData = response.data.data || [];
+        // Sort by orderNumber in ascending order
+        const sorted = topicsData.sort((a, b) => {
+          const ao = a.orderNumber || 0;
+          const bo = b.orderNumber || 0;
+          return ao - bo;
+        });
+        setFilterTopics(sorted);
+      } else {
+        console.error("Failed to fetch filter topics:", response.data.message);
+        setFilterTopics([]);
+      }
+    } catch (error) {
+      console.error("Error fetching filter topics:", error);
+      setFilterTopics([]);
+    }
+  }, []);
+
+  // Fetch topics for filter section when filterChapter changes
+  useEffect(() => {
+    if (filterChapter) {
+      fetchTopicsForFilter(filterChapter);
+    } else {
+      setFilterTopics([]);
+    }
+  }, [filterChapter, fetchTopicsForFilter]);
+
+  // Filter topics based on selected chapter for filters
+  const filteredFilterTopics = useMemo(() => {
+    if (!filterChapter) return [];
+    return filterTopics.filter(
+      (topic) =>
+        topic.chapterId?._id === filterChapter || topic.chapterId === filterChapter
+    );
+  }, [filterTopics, filterChapter]);
+
+  // Fetch subtopics for filter section
+  const fetchSubTopicsForFilter = useCallback(async (topicId) => {
+    if (!topicId) {
+      setFilterSubTopics([]);
+      return;
+    }
+    try {
+      const response = await api.get(
+        `/subtopic?topicId=${topicId}&status=all&limit=1000`
+      );
+      if (response.data.success) {
+        const subtopicsData = response.data.data || [];
+        // Sort by orderNumber in ascending order
+        const sorted = subtopicsData.sort((a, b) => {
+          const ao = a.orderNumber || 0;
+          const bo = b.orderNumber || 0;
+          return ao - bo;
+        });
+        setFilterSubTopics(sorted);
+      } else {
+        console.error("Failed to fetch filter subtopics:", response.data.message);
+        setFilterSubTopics([]);
+      }
+    } catch (error) {
+      console.error("Error fetching filter subtopics:", error);
+      setFilterSubTopics([]);
+    }
+  }, []);
+
+  // Fetch subtopics for filter section when filterTopic changes
+  useEffect(() => {
+    if (filterTopic) {
+      fetchSubTopicsForFilter(filterTopic);
+    } else {
+      setFilterSubTopics([]);
+    }
+  }, [filterTopic, fetchSubTopicsForFilter]);
+
+  // Filter subtopics based on selected topic for filters
+  const filteredFilterSubTopics = useMemo(() => {
+    if (!filterTopic) return [];
+    return filterSubTopics.filter(
+      (subtopic) =>
+        subtopic.topicId?._id === filterTopic || subtopic.topicId === filterTopic
+    );
+  }, [filterSubTopics, filterTopic]);
+
   // Filter definitions based on filters
   const filteredDefinitions = useMemo(() => {
     let result = definitions;
@@ -364,15 +582,31 @@ const DefinitionManagement = () => {
           definition.chapterId === filterChapter
       );
     }
+    if (filterTopic) {
+      result = result.filter(
+        (definition) =>
+          definition.topicId?._id === filterTopic ||
+          definition.topicId === filterTopic
+      );
+    }
+    if (filterSubTopic) {
+      result = result.filter(
+        (definition) =>
+          definition.subTopicId?._id === filterSubTopic ||
+          definition.subTopicId === filterSubTopic
+      );
+    }
     return result;
-  }, [definitions, filterExam, filterSubject, filterUnit, filterChapter]);
+  }, [definitions, filterExam, filterSubject, filterUnit, filterChapter, filterTopic, filterSubTopic]);
 
   // Get active filter count
   const activeFilterCount =
     (filterExam ? 1 : 0) +
     (filterSubject ? 1 : 0) +
     (filterUnit ? 1 : 0) +
-    (filterChapter ? 1 : 0);
+    (filterChapter ? 1 : 0) +
+    (filterTopic ? 1 : 0) +
+    (filterSubTopic ? 1 : 0);
 
   // Clear all filters
   const clearFilters = () => {
@@ -380,6 +614,8 @@ const DefinitionManagement = () => {
     setFilterSubject("");
     setFilterUnit("");
     setFilterChapter("");
+    setFilterTopic("");
+    setFilterSubTopic("");
   };
 
   const handleFormChange = (e) => {
@@ -392,15 +628,23 @@ const DefinitionManagement = () => {
         newData.subjectId = "";
         newData.unitId = "";
         newData.chapterId = "";
+        newData.topicId = "";
+        newData.subTopicId = "";
         setUnits([]); // Clear units when exam changes
         setChapters([]); // Clear chapters when exam changes
+        setTopics([]); // Clear topics when exam changes
+        setSubTopics([]); // Clear subtopics when exam changes
       }
       
       // Reset unit when subject changes and fetch units for the selected exam and subject
       if (name === "subjectId" && value !== prev.subjectId) {
         newData.unitId = "";
         newData.chapterId = "";
+        newData.topicId = "";
+        newData.subTopicId = "";
         setChapters([]); // Clear chapters when subject changes
+        setTopics([]); // Clear topics when subject changes
+        setSubTopics([]); // Clear subtopics when subject changes
         // Fetch units for the selected exam and subject
         if (newData.examId && value) {
           fetchUnits(newData.examId, value);
@@ -412,6 +656,10 @@ const DefinitionManagement = () => {
       // Reset chapter when unit changes and fetch chapters for the selected unit
       if (name === "unitId" && value !== prev.unitId) {
         newData.chapterId = "";
+        newData.topicId = "";
+        newData.subTopicId = "";
+        setTopics([]); // Clear topics when unit changes
+        setSubTopics([]); // Clear subtopics when unit changes
         // Fetch chapters for the selected unit
         if (value) {
           fetchChapters(value);
@@ -420,8 +668,32 @@ const DefinitionManagement = () => {
         }
       }
       
+      // Reset topic when chapter changes and fetch topics for the selected chapter
+      if (name === "chapterId" && value !== prev.chapterId) {
+        newData.topicId = "";
+        newData.subTopicId = "";
+        setSubTopics([]); // Clear subtopics when chapter changes
+        // Fetch topics for the selected chapter
+        if (value) {
+          fetchTopics(value);
+        } else {
+          setTopics([]);
+        }
+      }
+      
+      // Reset subtopic when topic changes and fetch subtopics for the selected topic
+      if (name === "topicId" && value !== prev.topicId) {
+        newData.subTopicId = "";
+        // Fetch subtopics for the selected topic
+        if (value) {
+          fetchSubTopics(value);
+        } else {
+          setSubTopics([]);
+        }
+      }
+      
       // Note: Definition clearing and order number calculation is handled by useEffect
-      // when chapterId changes
+      // when subTopicId changes
       
       return newData;
     });
@@ -438,15 +710,23 @@ const DefinitionManagement = () => {
         newData.subjectId = "";
         newData.unitId = "";
         newData.chapterId = "";
+        newData.topicId = "";
+        newData.subTopicId = "";
         setUnits([]); // Clear units when exam changes
         setChapters([]); // Clear chapters when exam changes
+        setTopics([]); // Clear topics when exam changes
+        setSubTopics([]); // Clear subtopics when exam changes
       }
       
       // Reset unit when subject changes and fetch units for the selected exam and subject
       if (name === "subjectId" && value !== prev.subjectId) {
         newData.unitId = "";
         newData.chapterId = "";
+        newData.topicId = "";
+        newData.subTopicId = "";
         setChapters([]); // Clear chapters when subject changes
+        setTopics([]); // Clear topics when subject changes
+        setSubTopics([]); // Clear subtopics when subject changes
         // Fetch units for the selected exam and subject in edit form
         if (newData.examId && value) {
           fetchUnits(newData.examId, value);
@@ -458,11 +738,39 @@ const DefinitionManagement = () => {
       // Reset chapter when unit changes and fetch chapters for the selected unit
       if (name === "unitId" && value !== prev.unitId) {
         newData.chapterId = "";
+        newData.topicId = "";
+        newData.subTopicId = "";
+        setTopics([]); // Clear topics when unit changes
+        setSubTopics([]); // Clear subtopics when unit changes
         // Fetch chapters for the selected unit in edit form
         if (value) {
           fetchChapters(value);
         } else {
           setChapters([]);
+        }
+      }
+      
+      // Reset topic when chapter changes and fetch topics for the selected chapter
+      if (name === "chapterId" && value !== prev.chapterId) {
+        newData.topicId = "";
+        newData.subTopicId = "";
+        setSubTopics([]); // Clear subtopics when chapter changes
+        // Fetch topics for the selected chapter in edit form
+        if (value) {
+          fetchTopics(value);
+        } else {
+          setTopics([]);
+        }
+      }
+      
+      // Reset subtopic when topic changes and fetch subtopics for the selected topic
+      if (name === "topicId" && value !== prev.topicId) {
+        newData.subTopicId = "";
+        // Fetch subtopics for the selected topic in edit form
+        if (value) {
+          fetchSubTopics(value);
+        } else {
+          setSubTopics([]);
         }
       }
       
@@ -479,12 +787,16 @@ const DefinitionManagement = () => {
       subjectId: "",
       unitId: "",
       chapterId: "",
+      topicId: "",
+      subTopicId: "",
       orderNumber: "",
     });
     setAdditionalDefinitions([{ name: "", orderNumber: "" }]);
     setFormError(null);
     setUnits([]); // Clear units when form is cancelled
     setChapters([]); // Clear chapters when form is cancelled
+    setTopics([]); // Clear topics when form is cancelled
+    setSubTopics([]); // Clear subtopics when form is cancelled
   };
 
   const handleCancelEditForm = () => {
@@ -496,11 +808,15 @@ const DefinitionManagement = () => {
       subjectId: "",
       unitId: "",
       chapterId: "",
+      topicId: "",
+      subTopicId: "",
       orderNumber: "",
     });
     setFormError(null);
     setUnits([]); // Clear units when edit form is cancelled
     setChapters([]); // Clear chapters when edit form is cancelled
+    setTopics([]); // Clear topics when edit form is cancelled
+    setSubTopics([]); // Clear subtopics when edit form is cancelled
   };
 
   const handleOpenAddForm = () => {
@@ -511,12 +827,16 @@ const DefinitionManagement = () => {
       subjectId: "",
       unitId: "",
       chapterId: "",
+      topicId: "",
+      subTopicId: "",
       orderNumber: "",
     });
     setAdditionalDefinitions([{ name: "", orderNumber: "" }]);
     setFormError(null);
     setUnits([]); // Clear units when opening new form
     setChapters([]); // Clear chapters when opening new form
+    setTopics([]); // Clear topics when opening new form
+    setSubTopics([]); // Clear subtopics when opening new form
   };
 
   const handleAddMoreDefinitions = () => {
@@ -540,10 +860,10 @@ const DefinitionManagement = () => {
     );
   };
 
-  const getNextOrderNumber = useCallback(async (chapterId) => {
-    if (!chapterId) return 1;
+  const getNextOrderNumber = useCallback(async (subTopicId) => {
+    if (!subTopicId) return 1;
     try {
-      const response = await api.get(`/definition?chapterId=${chapterId}&status=all&limit=1000`);
+      const response = await api.get(`/definition?subTopicId=${subTopicId}&status=all&limit=1000`);
       if (response.data.success && response.data.data && response.data.data.length > 0) {
         const existingDefinitions = response.data.data;
         const maxOrder = existingDefinitions.reduce(
@@ -558,10 +878,10 @@ const DefinitionManagement = () => {
     return 1;
   }, []);
 
-  // Update order numbers when chapter is selected
+  // Update order numbers when subtopic is selected
   useEffect(() => {
-    if (formData.chapterId && showAddForm) {
-      getNextOrderNumber(formData.chapterId).then((orderNumber) => {
+    if (formData.subTopicId && showAddForm) {
+      getNextOrderNumber(formData.subTopicId).then((orderNumber) => {
         setNextOrderNumber(orderNumber);
         setFormData((prev) => ({
           ...prev,
@@ -587,12 +907,12 @@ const DefinitionManagement = () => {
           }
         });
       });
-    } else if (!formData.chapterId && showAddForm) {
-      // Clear definitions when chapter is cleared
+    } else if (!formData.subTopicId && showAddForm) {
+      // Clear definitions when subtopic is cleared
       setAdditionalDefinitions([{ name: "", orderNumber: "" }]);
       setNextOrderNumber(1);
     }
-  }, [formData.chapterId, showAddForm, getNextOrderNumber]);
+  }, [formData.subTopicId, showAddForm, getNextOrderNumber]);
 
   const handleAddDefinitions = async (e) => {
     e.preventDefault();
@@ -615,6 +935,8 @@ const DefinitionManagement = () => {
           subjectId: formData.subjectId,
           unitId: formData.unitId,
           chapterId: formData.chapterId,
+          topicId: formData.topicId,
+          subTopicId: formData.subTopicId,
           orderNumber: parseInt(definition.orderNumber) || nextOrderNumber + index,
         }));
 
@@ -653,6 +975,8 @@ const DefinitionManagement = () => {
     const subjectId = definitionToEdit.subjectId?._id || definitionToEdit.subjectId;
     const unitId = definitionToEdit.unitId?._id || definitionToEdit.unitId;
     const chapterId = definitionToEdit.chapterId?._id || definitionToEdit.chapterId;
+    const topicId = definitionToEdit.topicId?._id || definitionToEdit.topicId;
+    const subTopicId = definitionToEdit.subTopicId?._id || definitionToEdit.subTopicId;
 
     setEditingDefinition(definitionToEdit);
     setEditFormData({
@@ -661,14 +985,24 @@ const DefinitionManagement = () => {
       subjectId: subjectId,
       unitId: unitId,
       chapterId: chapterId,
+      topicId: topicId,
+      subTopicId: subTopicId,
       orderNumber: definitionToEdit.orderNumber?.toString() || "",
     });
     
-    // Fetch units and chapters for the selected exam, subject, and unit when editing
+    // Fetch units, chapters, topics, and subtopics for the selected exam, subject, unit, chapter, and topic when editing
     if (examId && subjectId) {
       fetchUnits(examId, subjectId).then(() => {
         if (unitId) {
-          fetchChapters(unitId);
+          fetchChapters(unitId).then(() => {
+            if (chapterId) {
+              fetchTopics(chapterId).then(() => {
+                if (topicId) {
+                  fetchSubTopics(topicId);
+                }
+              });
+            }
+          });
         }
       });
     }
@@ -688,6 +1022,8 @@ const DefinitionManagement = () => {
         subjectId: editFormData.subjectId,
         unitId: editFormData.unitId,
         chapterId: editFormData.chapterId,
+        topicId: editFormData.topicId,
+        subTopicId: editFormData.subTopicId,
         orderNumber: editFormData.orderNumber && editFormData.orderNumber.trim()
           ? parseInt(editFormData.orderNumber)
           : undefined,
@@ -820,13 +1156,13 @@ const DefinitionManagement = () => {
     const items = Array.from(definitions);
     const reorderedItem = items[sourceIndex];
     
-    // Get the chapter ID to identify the group
-    const chapterId = reorderedItem.chapterId?._id || reorderedItem.chapterId;
+    // Get the subtopic ID to identify the group
+    const subTopicId = reorderedItem.subTopicId?._id || reorderedItem.subTopicId;
 
-    // Find all definitions in the same group (same chapter)
+    // Find all definitions in the same group (same subtopic)
     const groupDefinitions = items.filter((definition) => {
-      const definitionChapterId = definition.chapterId?._id || definition.chapterId;
-      return definitionChapterId === chapterId;
+      const definitionSubTopicId = definition.subTopicId?._id || definition.subTopicId;
+      return definitionSubTopicId === subTopicId;
     });
 
     // Find indices within the group
@@ -989,7 +1325,7 @@ const DefinitionManagement = () => {
 
             <form onSubmit={handleAddDefinitions} className="space-y-6">
               {/* Selection Fields */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Exam *
@@ -1068,6 +1404,48 @@ const DefinitionManagement = () => {
                     {filteredChapters.map((chapter) => (
                       <option key={chapter._id} value={chapter._id}>
                         {chapter.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Topic *
+                  </label>
+                  <select
+                    name="topicId"
+                    value={formData.topicId}
+                    onChange={handleFormChange}
+                    required
+                    disabled={!formData.chapterId}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  >
+                    <option value="">Select Topic</option>
+                    {filteredTopics.map((topic) => (
+                      <option key={topic._id} value={topic._id}>
+                        {topic.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SubTopic *
+                  </label>
+                  <select
+                    name="subTopicId"
+                    value={formData.subTopicId}
+                    onChange={handleFormChange}
+                    required
+                    disabled={!formData.topicId}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  >
+                    <option value="">Select SubTopic</option>
+                    {filteredSubTopics.map((subtopic) => (
+                      <option key={subtopic._id} value={subtopic._id}>
+                        {subtopic.name}
                       </option>
                     ))}
                   </select>
@@ -1200,7 +1578,7 @@ const DefinitionManagement = () => {
             )}
 
             <form onSubmit={handleUpdateDefinition} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Exam *
@@ -1279,6 +1657,48 @@ const DefinitionManagement = () => {
                     {filteredEditChapters.map((chapter) => (
                       <option key={chapter._id} value={chapter._id}>
                         {chapter.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Topic *
+                  </label>
+                  <select
+                    name="topicId"
+                    value={editFormData.topicId}
+                    onChange={handleEditFormChange}
+                    required
+                    disabled={!editFormData.chapterId}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  >
+                    <option value="">Select Topic</option>
+                    {filteredEditTopics.map((topic) => (
+                      <option key={topic._id} value={topic._id}>
+                        {topic.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    SubTopic *
+                  </label>
+                  <select
+                    name="subTopicId"
+                    value={editFormData.subTopicId}
+                    onChange={handleEditFormChange}
+                    required
+                    disabled={!editFormData.topicId}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
+                  >
+                    <option value="">Select SubTopic</option>
+                    {filteredEditSubTopics.map((subtopic) => (
+                      <option key={subtopic._id} value={subtopic._id}>
+                        {subtopic.name}
                       </option>
                     ))}
                   </select>
@@ -1379,7 +1799,7 @@ const DefinitionManagement = () => {
           {/* Filter Section */}
           {showFilters && (
             <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-4">
                 {/* Filter by Exam */}
                 <div className="space-y-2">
                   <label className="block text-sm font-medium text-gray-700">
@@ -1392,6 +1812,8 @@ const DefinitionManagement = () => {
                       setFilterSubject("");
                       setFilterUnit("");
                       setFilterChapter("");
+                      setFilterTopic("");
+                      setFilterSubTopic("");
                     }}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm transition-all"
                   >
@@ -1415,6 +1837,8 @@ const DefinitionManagement = () => {
                       setFilterSubject(e.target.value);
                       setFilterUnit("");
                       setFilterChapter("");
+                      setFilterTopic("");
+                      setFilterSubTopic("");
                     }}
                     disabled={!filterExam}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
@@ -1440,6 +1864,8 @@ const DefinitionManagement = () => {
                     onChange={(e) => {
                       setFilterUnit(e.target.value);
                       setFilterChapter("");
+                      setFilterTopic("");
+                      setFilterSubTopic("");
                     }}
                     disabled={!filterSubject}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
@@ -1462,7 +1888,11 @@ const DefinitionManagement = () => {
                   </label>
                   <select
                     value={filterChapter}
-                    onChange={(e) => setFilterChapter(e.target.value)}
+                    onChange={(e) => {
+                      setFilterChapter(e.target.value);
+                      setFilterTopic("");
+                      setFilterSubTopic("");
+                    }}
                     disabled={!filterUnit}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
                   >
@@ -1472,6 +1902,53 @@ const DefinitionManagement = () => {
                     {filteredFilterChapters.map((chapter) => (
                       <option key={chapter._id} value={chapter._id}>
                         {chapter.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filter by Topic */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-semibold text-gray-700">
+                    Filter by Topic
+                  </label>
+                  <select
+                    value={filterTopic}
+                    onChange={(e) => {
+                      setFilterTopic(e.target.value);
+                      setFilterSubTopic("");
+                    }}
+                    disabled={!filterChapter}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                  >
+                    <option value="">
+                      {filterChapter ? "Select Chapter First" : "All Topics"}
+                    </option>
+                    {filteredFilterTopics.map((topic) => (
+                      <option key={topic._id} value={topic._id}>
+                        {topic.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filter by SubTopic */}
+                <div className="space-y-2">
+                  <label className="block text-sm font-semibold text-gray-700">
+                    Filter by SubTopic
+                  </label>
+                  <select
+                    value={filterSubTopic}
+                    onChange={(e) => setFilterSubTopic(e.target.value)}
+                    disabled={!filterTopic}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-sm bg-white disabled:bg-gray-100 disabled:text-gray-400"
+                  >
+                    <option value="">
+                      {filterTopic ? "Select Topic First" : "All SubTopics"}
+                    </option>
+                    {filteredFilterSubTopics.map((subtopic) => (
+                      <option key={subtopic._id} value={subtopic._id}>
+                        {subtopic.name}
                       </option>
                     ))}
                   </select>
@@ -1494,6 +1971,8 @@ const DefinitionManagement = () => {
                           setFilterSubject("");
                           setFilterUnit("");
                           setFilterChapter("");
+                          setFilterTopic("");
+                          setFilterSubTopic("");
                         }}
                         className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
@@ -1511,6 +1990,8 @@ const DefinitionManagement = () => {
                           setFilterSubject("");
                           setFilterUnit("");
                           setFilterChapter("");
+                          setFilterTopic("");
+                          setFilterSubTopic("");
                         }}
                         className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
@@ -1526,6 +2007,8 @@ const DefinitionManagement = () => {
                         onClick={() => {
                           setFilterUnit("");
                           setFilterChapter("");
+                          setFilterTopic("");
+                          setFilterSubTopic("");
                         }}
                         className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
@@ -1536,10 +2019,42 @@ const DefinitionManagement = () => {
                   {filterChapter && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
                       Chapter:{" "}
-                      {filterChapters.find((c) => c._id === filterChapter)?.name ||
-                        "N/A"}
+                      {filterChapters.find((c) => c._id === filterChapter)?.name || "N/A"}
                       <button
-                        onClick={() => setFilterChapter("")}
+                        onClick={() => {
+                          setFilterChapter("");
+                          setFilterTopic("");
+                          setFilterSubTopic("");
+                        }}
+                        className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
+                      >
+                        <FaTimes className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                  {filterTopic && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                      Topic:{" "}
+                      {filterTopics.find((t) => t._id === filterTopic)?.name || "N/A"}
+                      <button
+                        onClick={() => {
+                          setFilterTopic("");
+                          setFilterSubTopic("");
+                        }}
+                        className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
+                      >
+                        <FaTimes className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                  {filterSubTopic && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium">
+                      SubTopic:{" "}
+                      {filterSubTopics.find((st) => st._id === filterSubTopic)?.name || "N/A"}
+                      <button
+                        onClick={() => {
+                          setFilterSubTopic("");
+                        }}
                         className="hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                       >
                         <FaTimes className="w-3 h-3" />

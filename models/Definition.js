@@ -37,6 +37,16 @@ const definitionSchema = new mongoose.Schema(
       ref: "Chapter",
       required: true,
     },
+    topicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Topic",
+      required: true,
+    },
+    subTopicId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SubTopic",
+      required: true,
+    },
     status: {
       type: String,
       enum: ["active", "inactive"],
@@ -46,20 +56,20 @@ const definitionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Add compound index to ensure unique orderNumber per chapter within an exam
-definitionSchema.index({ chapterId: 1, orderNumber: 1 }, { unique: true });
+// Add compound index to ensure unique orderNumber per subTopic within an exam
+definitionSchema.index({ subTopicId: 1, orderNumber: 1 }, { unique: true });
 
-// Compound index for unique slug per chapter
-definitionSchema.index({ chapterId: 1, slug: 1 }, { unique: true, sparse: true });
+// Compound index for unique slug per subTopic
+definitionSchema.index({ subTopicId: 1, slug: 1 }, { unique: true, sparse: true });
 
 // Pre-save hook to auto-generate slug
 definitionSchema.pre("save", async function (next) {
   if (this.isModified("name") || this.isNew) {
     const baseSlug = createSlug(this.name);
     
-    // Check if slug exists within the same chapter (excluding current document for updates)
+    // Check if slug exists within the same subTopic (excluding current document for updates)
     const checkExists = async (slug, excludeId) => {
-      const query = { chapterId: this.chapterId, slug };
+      const query = { subTopicId: this.subTopicId, slug };
       if (excludeId) {
         query._id = { $ne: excludeId };
       }

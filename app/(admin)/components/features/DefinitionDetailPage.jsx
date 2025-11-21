@@ -203,6 +203,12 @@ const DefinitionDetailPage = ({ definitionId }) => {
               <span className="mx-2 text-gray-400">•</span>
               <span className="font-medium text-indigo-600">Chapter:</span>{" "}
               {definition.chapterId?.name || "N/A"}
+              <span className="mx-2 text-gray-400">•</span>
+              <span className="font-medium text-indigo-600">Topic:</span>{" "}
+              {definition.topicId?.name || "N/A"}
+              <span className="mx-2 text-gray-400">•</span>
+              <span className="font-medium text-indigo-600">SubTopic:</span>{" "}
+              {definition.subTopicId?.name || "N/A"}
             </p>
           </div>
         </div>

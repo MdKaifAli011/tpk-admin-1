@@ -31,6 +31,8 @@ export async function GET(request, { params }) {
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
+      .populate("topicId", "name orderNumber")
+      .populate("subTopicId", "name orderNumber")
       .lean();
 
     if (!definition) {
@@ -65,6 +67,8 @@ export async function PUT(request, { params }) {
       subjectId,
       unitId,
       chapterId,
+      topicId,
+      subTopicId,
       orderNumber,
       status,
     } = body;
@@ -92,6 +96,8 @@ export async function PUT(request, { params }) {
     if (subjectId) updateData.subjectId = subjectId;
     if (unitId) updateData.unitId = unitId;
     if (chapterId) updateData.chapterId = chapterId;
+    if (topicId) updateData.topicId = topicId;
+    if (subTopicId) updateData.subTopicId = subTopicId;
     if (orderNumber !== undefined) updateData.orderNumber = orderNumber;
     if (status) updateData.status = status;
 
@@ -107,6 +113,8 @@ export async function PUT(request, { params }) {
       .populate("subjectId", "name")
       .populate("unitId", "name orderNumber")
       .populate("chapterId", "name orderNumber")
+      .populate("topicId", "name orderNumber")
+      .populate("subTopicId", "name orderNumber")
       .lean();
 
     if (!updatedDefinition) {
