@@ -1,15 +1,17 @@
 "use client";
 
 import React, { useState, lazy, Suspense } from "react";
+import Link from "next/link";
 import { FaBook, FaChartLine, FaTrophy } from "react-icons/fa";
 import RichContent from "./RichContent";
+import { createSlug } from "../lib/api";
 
 // Lazy load PracticeTestList to reduce initial bundle size
 const PracticeTestList = lazy(() => import("./PracticeTestList"));
 
 const TABS = ["Overview", "Discussion Forum", "Practice Test", "Performance"];
 
-const TabsClient = ({ 
+const TabsClient = ({
   activeTab: initialTab = TABS[0],
   content,
   details,
@@ -22,6 +24,14 @@ const TabsClient = ({
   entityName,
   entityType,
   unitsCount,
+  definitions = [],
+  currentDefinitionId,
+  examSlug,
+  subjectSlug,
+  unitSlug,
+  chapterSlug,
+  topicSlug,
+  subTopicSlug,
 }) => {
   const [activeTab, setActiveTab] = useState(initialTab);
 
@@ -41,9 +51,10 @@ const TabsClient = ({
                         Subject Overview
                       </h3>
                       <p className="text-gray-600">
-                        Welcome to your {entityName} preparation. Here you&apos;ll find comprehensive
-                        resources, study materials, and track your progress
-                        across all categories and topics.
+                        Welcome to your {entityName} preparation. Here
+                        you&apos;ll find comprehensive resources, study
+                        materials, and track your progress across all categories
+                        and topics.
                       </p>
                     </>
                   ) : (
@@ -63,21 +74,15 @@ const TabsClient = ({
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                 <div className="bg-linear-to-br from-blue-50 to-indigo-50 rounded-lg p-4 border border-blue-100">
                   <FaBook className="text-blue-600 text-2xl mb-2" />
-                  <h4 className="font-semibold text-gray-900 mb-1">
-                    Units
-                  </h4>
-                  <p className="text-sm text-gray-600">
-                    {unitsCount} Units
-                  </p>
+                  <h4 className="font-semibold text-gray-900 mb-1">Units</h4>
+                  <p className="text-sm text-gray-600">{unitsCount} Units</p>
                 </div>
                 <div className="bg-linear-to-br from-purple-50 to-pink-50 rounded-lg p-4 border border-purple-100">
                   <FaChartLine className="text-purple-600 text-2xl mb-2" />
                   <h4 className="font-semibold text-gray-900 mb-1">
                     Subject Overview
                   </h4>
-                  <p className="text-sm text-gray-600">
-                    Explore all units
-                  </p>
+                  <p className="text-sm text-gray-600">Explore all units</p>
                 </div>
                 <div className="bg-linear-to-br from-green-50 to-emerald-50 rounded-lg p-4 border border-green-100">
                   <FaTrophy className="text-green-600 text-2xl mb-2" />
@@ -90,6 +95,87 @@ const TabsClient = ({
                 </div>
               </div>
             )}
+
+            {/* Definitions List - for subtopic and definition types */}
+            {(entityType === "subtopic" || entityType === "definition") &&
+              definitions &&
+              definitions.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                    {entityType === "definition"
+                      ? "Related Definitions"
+                      : "Definitions"}
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {definitions
+                      .filter((def) =>
+                        entityType === "definition"
+                          ? def._id !== currentDefinitionId
+                          : true
+                      )
+                      .map((definition, index) => {
+                        const definitionSlug =
+                          definition.slug || createSlug(definition.name);
+                        const definitionUrl =
+                          entityType === "definition" &&
+                          examSlug &&
+                          subjectSlug &&
+                          unitSlug &&
+                          chapterSlug &&
+                          topicSlug &&
+                          subTopicSlug
+                            ? `/${examSlug}/${subjectSlug}/${unitSlug}/${chapterSlug}/${topicSlug}/${subTopicSlug}/${definitionSlug}`
+                            : null;
+
+                        const DefinitionCard = (
+                          <div className="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:border-indigo-300 hover:bg-indigo-50 transition-colors">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <h4
+                                  className={`font-medium text-gray-900 text-sm ${
+                                    definitionUrl
+                                      ? "hover:text-indigo-600 transition-colors"
+                                      : ""
+                                  }`}
+                                >
+                                  {definition.name}
+                                </h4>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Order: {definition.orderNumber || index + 1}
+                                </p>
+                              </div>
+                              {definitionUrl && (
+                                <div className="ml-4 text-indigo-600">
+                                  <svg
+                                    className="w-5 h-5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M9 5l7 7-7 7"
+                                    />
+                                  </svg>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+
+                        return definitionUrl ? (
+                          <Link key={definition._id} href={definitionUrl}>
+                            {DefinitionCard}
+                          </Link>
+                        ) : (
+                          <div key={definition._id}>{DefinitionCard}</div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
           </div>
         );
 
@@ -100,12 +186,20 @@ const TabsClient = ({
               Discussion Forum
             </h3>
             <p className="text-gray-600 mb-4">
-              {entityType === "exam" && `Connect with fellow students preparing for ${entityName}.`}
-              {entityType === "subject" && `Connect with fellow students studying ${entityName}.`}
-              {entityType === "unit" && `Connect with fellow students studying ${entityName}.`}
-              {entityType === "chapter" && `Connect with fellow students studying ${entityName}.`}
-              {entityType === "topic" && `Ask questions and discuss ${entityName} with fellow students.`}
-              {entityType === "subtopic" && `Ask questions and discuss ${entityName} with fellow students.`}
+              {entityType === "exam" &&
+                `Connect with fellow students preparing for ${entityName}.`}
+              {entityType === "subject" &&
+                `Connect with fellow students studying ${entityName}.`}
+              {entityType === "unit" &&
+                `Connect with fellow students studying ${entityName}.`}
+              {entityType === "chapter" &&
+                `Connect with fellow students studying ${entityName}.`}
+              {entityType === "topic" &&
+                `Ask questions and discuss ${entityName} with fellow students.`}
+              {entityType === "subtopic" &&
+                `Ask questions and discuss ${entityName} with fellow students.`}
+              {entityType === "definition" &&
+                `Ask questions and discuss ${entityName} with fellow students.`}
             </p>
             <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
               <p className="text-sm text-gray-500 italic">
@@ -118,14 +212,16 @@ const TabsClient = ({
       case "Practice Test":
         return (
           <div>
-            <Suspense fallback={
-              <div className="flex items-center justify-center py-8">
-                <div className="text-center">
-                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent mb-4"></div>
-                  <p className="text-gray-600">Loading practice tests...</p>
+            <Suspense
+              fallback={
+                <div className="flex items-center justify-center py-8">
+                  <div className="text-center">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent mb-4"></div>
+                    <p className="text-gray-600">Loading practice tests...</p>
+                  </div>
                 </div>
-              </div>
-            }>
+              }
+            >
               <PracticeTestList
                 examId={examId}
                 subjectId={subjectId}
@@ -145,17 +241,27 @@ const TabsClient = ({
               Performance Analytics
             </h3>
             <p className="text-gray-600 mb-4">
-              {entityType === "exam" && `Track your performance across all subjects in ${entityName}.`}
-              {entityType === "subject" && `Track your performance in ${entityName} across all categories and topics.`}
-              {entityType === "unit" && `Track your performance in ${entityName} across all chapters.`}
-              {entityType === "chapter" && `Track your performance in ${entityName}.`}
-              {entityType === "topic" && `Track your performance in ${entityName}.`}
-              {entityType === "subtopic" && `Track your performance in ${entityName}.`}
+              {entityType === "exam" &&
+                `Track your performance across all subjects in ${entityName}.`}
+              {entityType === "subject" &&
+                `Track your performance in ${entityName} across all categories and topics.`}
+              {entityType === "unit" &&
+                `Track your performance in ${entityName} across all chapters.`}
+              {entityType === "chapter" &&
+                `Track your performance in ${entityName}.`}
+              {entityType === "topic" &&
+                `Track your performance in ${entityName}.`}
+              {entityType === "subtopic" &&
+                `Track your performance in ${entityName}.`}
+              {entityType === "definition" &&
+                `Track your performance in ${entityName}.`}
             </p>
             <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
               <p className="text-sm text-gray-500 italic">
-                Performance analytics {entityType === "exam" ? "dashboard" : ""} will be available soon.
-                {entityType !== "exam" && " Monitor your progress and improve your scores!"}
+                Performance analytics {entityType === "exam" ? "dashboard" : ""}{" "}
+                will be available soon.
+                {entityType !== "exam" &&
+                  " Monitor your progress and improve your scores!"}
               </p>
             </div>
           </div>
@@ -199,4 +305,3 @@ const TabsClient = ({
 };
 
 export default TabsClient;
-

@@ -8,32 +8,22 @@ import React, {
   useState,
 } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import {
-  FaSearch,
-  FaChevronRight,
-  FaBars,
-  FaChevronDown,
-} from "react-icons/fa";
+import { FaSearch, FaBars } from "react-icons/fa";
 import { fetchExams, fetchTree, createSlug, findByIdOrSlug } from "../lib/api";
 import { logger } from "@/utils/logger";
+import ExamDropdown from "../components/ExamDropdown";
+import SidebarNavigationTree from "../components/SidebarNavigationTree";
 
 /* ------------------------------------------------------------------------- */
 /* Premium ChatGPT-style Light Sidebar (UI only changes)                     */
-/* - Compact width (240px, w-60)                                              */
-/* - Light mode, rounded corners, subtle shadows                              */
-/* - Compact spacing, smaller fonts                                           */
-/* - Smooth animations & polished hover states                                */
-/* - Keeps all original logic/behaviour                                       */
+/* - Compact width (300px)                                                   */
+/* - Light mode, rounded corners, subtle shadows                             */
+/* - Compact spacing, smaller fonts                                          */
+/* - Smooth animations & polished hover states                               */
+/* - Keeps all original logic/behaviour                                      */
 /* ------------------------------------------------------------------------- */
 
-/* ----------------------- Small UI tokens (tailwind utility classes) -----------------------
-    Primary color: blue-500 (#3B82F6)
-    Sidebar width: w-60 (240px)
-    Radius: rounded-lg (md)
-    Compact font sizes: text-sm / text-xs
-  ------------------------------------------------------------------------------------------*/
-
-// small helper: build node (same as your original)
+// Helper: build node (same as your original)
 const buildNode = (item) => ({
   id: item?._id ?? "",
   name: item?.name ?? "",
@@ -41,264 +31,8 @@ const buildNode = (item) => ({
   slug: item?.slug || (item?.name ? createSlug(item.name) : ""),
 });
 
-// Truncate text to 30 characters with ellipsis
-const truncateTo30 = (text) => {
-  if (!text) return "";
-  const str = String(text);
-  if (str.length <= 30) return str;
-  return str.substring(0, 30) + "....";
-};
-
-// Text with ellipsis + native tooltip (Premium compact)
-const TextEllipsis = ({
-  children,
-  maxW = "max-w-[160px]",
-  className = "",
-  truncate = false,
-  style = {},
-}) => {
-  const displayText = truncate ? truncateTo30(children) : children;
-
-  // When truncate is true:
-  // - Don't use CSS truncate class (use JS truncation instead)
-  // - Use inline-block so content determines width
-  // - No overflow-hidden so dots are fully visible
-  // - Max width accommodates 30 chars + 12 dots (~200px for text-sm)
-  if (truncate) {
-    return (
-      <span
-        className={`whitespace-nowrap inline-block text-sm ${className}`}
-        title={typeof children === "string" ? children : undefined}
-        style={{ maxWidth: "200px", ...style }}
-      >
-        {displayText}
-      </span>
-    );
-  }
-
-  // Normal CSS truncation for non-truncated items
-  return (
-    <span
-      className={`truncate whitespace-nowrap overflow-hidden block ${maxW} text-sm ${className}`}
-      title={typeof children === "string" ? children : undefined}
-      style={style}
-    >
-      {displayText}
-    </span>
-  );
-};
-
-// Collapsible component (no logic changes) — keep animation but slightly faster for snappiness
-const Collapsible = ({ isOpen, children, className = "" }) => {
-  const ref = useRef(null);
-  const [maxHeight, setMaxHeight] = useState("0px");
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-
-    if (isOpen) {
-      setMaxHeight(`${el.scrollHeight}px`);
-      const t = setTimeout(() => setMaxHeight("none"), 220);
-      return () => clearTimeout(t);
-    } else {
-      if (el.scrollHeight) {
-        setMaxHeight(`${el.scrollHeight}px`);
-        requestAnimationFrame(() => setMaxHeight("0px"));
-      } else {
-        setMaxHeight("0px");
-      }
-    }
-  }, [isOpen, children]);
-
-  const style =
-    maxHeight === "none"
-      ? {
-          overflowY: "visible",
-          transition: "max-height 200ms cubic-bezier(.2,.9,.2,1)",
-        }
-      : {
-          maxHeight,
-          overflow: "hidden",
-          transition: "max-height 200ms cubic-bezier(.2,.9,.2,1)",
-        };
-
-  return (
-    <div ref={ref} style={style} className={className}>
-      {children}
-    </div>
-  );
-};
-
-// Accessible searchable ExamDropdown (compact premium)
-const ExamDropdown = ({ exams = [], activeExamId, onSelect }) => {
-  const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState("");
-  const [highlightIndex, setHighlightIndex] = useState(-1);
-  const listRef = useRef(null);
-  const triggerRef = useRef(null);
-
-  const filtered = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return exams;
-    return exams.filter((e) => e.name.toLowerCase().includes(q));
-  }, [exams, filter]);
-
-  // Reset filter and highlight when dropdown closes
-  useEffect(() => {
-    if (!open) {
-      const timer = setTimeout(() => {
-        setFilter("");
-        setHighlightIndex(-1);
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [open]);
-
-  useEffect(() => {
-    const onDoc = (e) => {
-      if (triggerRef.current && !triggerRef.current.contains(e.target))
-        setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-
-  const handleKeyDown = (e) => {
-    if (!open && (e.key === "ArrowDown" || e.key === "Enter")) {
-      e.preventDefault();
-      setOpen(true);
-      return;
-    }
-    if (!open) return;
-
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setHighlightIndex((i) => Math.min(i + 1, filtered.length - 1));
-      scrollToHighlight();
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlightIndex((i) => Math.max(i - 1, 0));
-      scrollToHighlight();
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const item = filtered[highlightIndex] || filtered[0];
-      if (item) onSelect(item);
-      setOpen(false);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      setOpen(false);
-    }
-  };
-
-  const scrollToHighlight = () => {
-    const list = listRef.current;
-    if (!list) return;
-    const item = list.children[highlightIndex];
-    if (item) item.scrollIntoView({ block: "nearest" });
-  };
-
-  const activeExam = exams.find((e) => e._id === activeExamId) || null;
-
-  return (
-    <div className="relative" ref={triggerRef}>
-      <button
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        onKeyDown={handleKeyDown}
-        className="flex w-full items-center justify-between gap-3 rounded-lg border border-transparent bg-white px-2 py-1.5 text-left text-sm font-medium text-gray-800 hover:bg-gray-50 transition"
-      >
-        <div className="flex items-center gap-2 truncate min-w-0">
-          <span className="text-xs text-gray-500 shrink-0">Exam</span>
-          <TextEllipsis maxW="max-w-[140px]" className="font-semibold">
-            {activeExam ? activeExam.name : "Select exam"}
-          </TextEllipsis>
-        </div>
-        <FaChevronDown
-          className={`text-gray-400 shrink-0 transition-transform duration-200 ${
-            open ? "-rotate-180" : "rotate-0"
-          }`}
-        />
-      </button>
-
-      <div
-        className={`absolute left-0 right-0 mt-2 z-40 ${
-          open ? "block" : "hidden"
-        }`}
-      >
-        <div className="rounded-lg bg-white shadow-md border border-gray-100 overflow-hidden">
-          <div className="p-2 border-b border-gray-100">
-            <div className="relative">
-              <FaSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
-              <input
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Filter exams..."
-                className="w-full rounded-md border border-gray-100 bg-white px-9 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <ul
-            ref={listRef}
-            role="listbox"
-            aria-activedescendant={filtered[highlightIndex]?._id}
-            tabIndex={-1}
-            className="h-auto overflow-y-auto overflow-x-hidden divide-y divide-gray-100"
-          >
-            {filtered.length === 0 && (
-              <li className="px-4 py-3 text-sm text-gray-500 text-center">
-                No exams found
-              </li>
-            )}
-
-            {filtered.map((exam, idx) => {
-              const isActive = exam._id === activeExamId;
-              const highlighted = idx === highlightIndex;
-              return (
-                <li key={exam._id}>
-                  <button
-                    id={exam._id}
-                    role="option"
-                    aria-selected={isActive}
-                    onMouseEnter={() => setHighlightIndex(idx)}
-                    onClick={() => {
-                      onSelect(exam);
-                      setOpen(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between ${
-                      highlighted ? "bg-blue-50" : "hover:bg-gray-50"
-                    } ${
-                      isActive ? "font-semibold text-blue-600" : "text-gray-700"
-                    }`}
-                  >
-                    <TextEllipsis
-                      maxW="max-w-[160px]"
-                      className={isActive ? "text-blue-600" : ""}
-                    >
-                      {exam.name}
-                    </TextEllipsis>
-                    {isActive && (
-                      <span className="text-xs font-medium text-blue-600 shrink-0 ml-2">
-                        Active
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 /* ------------------------------------------------------------------------- */
-/* MAIN SIDEBAR                                                                */
+/* MAIN SIDEBAR                                                              */
 /* ------------------------------------------------------------------------- */
 export default function Sidebar({ isOpen = true, onClose }) {
   const router = useRouter();
@@ -481,7 +215,6 @@ export default function Sidebar({ isOpen = true, onClose }) {
           setError("");
         }
       } catch (err) {
-        // Handle error safely
         const errorMessage = err?.message || err?.toString() || "Unknown error";
         const errorStack = err?.stack || "No stack trace available";
 
@@ -664,7 +397,7 @@ export default function Sidebar({ isOpen = true, onClose }) {
   const renderLoading = () => (
     <div className="px-3 py-4 space-y-2">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="h-3 rounded-md bg-gray-200 animate-pulse" />
+        <div key={i} className="h-3 rounded-md bg-gray-200/70 animate-pulse" />
       ))}
     </div>
   );
@@ -677,7 +410,7 @@ export default function Sidebar({ isOpen = true, onClose }) {
     </div>
   );
 
-  // accordion toggles (ensure single open where appropriate)
+  // accordion toggles
   const toggleSubject = useCallback((subjectId) => {
     setOpenSubjectId((prev) => (prev === subjectId ? null : subjectId));
     setOpenUnitId(null);
@@ -724,18 +457,18 @@ export default function Sidebar({ isOpen = true, onClose }) {
         />
       )}
 
-      {/* Sidebar - Premium Compact 280px */}
+      {/* Sidebar - Premium Compact 300px */}
       <aside
-        className={`fixed left-0 z-40 w-[280px] bg-white/95 backdrop-blur-sm border-r border-gray-100 transform transition-transform duration-200 ease-out ${
+        className={`fixed left-0 z-40 w-[300px] min-w-[300px] max-w-[300px] bg-white/95 backdrop-blur-sm border-r border-gray-100 transform transition-transform duration-200 ease-out ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         } lg:flex lg:flex-col top-[70px] md:top-[102px] h-[calc(100vh-70px)] md:h-[calc(100vh-102px)]`}
         role="complementary"
         aria-label="Exam navigation sidebar"
         style={{ boxShadow: "0 6px 18px rgba(15, 23, 42, 0.06)" }}
       >
-        <div className="flex h-full flex-col overflow-y-auto overflow-x-hidden p-3 min-h-0 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
+        <div className="flex h-full flex-col overflow-y-auto overflow-x-hidden p-3 min-h-0 min-w-[300px] max-w-[300px] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {/* Exam dropdown */}
-          <div className="mb-2">
+          <div className="mb-3">
             <ExamDropdown
               exams={exams}
               activeExamId={activeExamId}
@@ -749,23 +482,23 @@ export default function Sidebar({ isOpen = true, onClose }) {
 
           {/* Search */}
           {tree.length > 0 && (
-            <div className="mb-2">
+            <div className="mb-3">
               <div className="relative">
-                <FaSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm" />
+                <FaSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
                 <input
                   type="search"
                   aria-label="Search subjects, units, chapters, and topics"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search..."
-                  className="w-full rounded-md border border-gray-100 bg-white px-9 py-2 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400 transition"
+                  className="w-full rounded-md border border-gray-200 bg-white px-8 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400/80 transition"
                 />
               </div>
             </div>
           )}
 
           {/* Body — Y-scroll only */}
-          <div ref={sidebarBodyRef} className="flex-1 min-h-0">
+          <div ref={sidebarBodyRef} className="flex-1 min-h-0 w-full">
             {treeLoading && renderLoading()}
 
             {!treeLoading && error && (
@@ -780,293 +513,21 @@ export default function Sidebar({ isOpen = true, onClose }) {
               renderEmpty()}
 
             {!treeLoading && !error && listToRender.length > 0 && (
-              <div className="space-y-1">
-                {listToRender.map((subject) => {
-                  const isActiveSubject =
-                    subject.slug && subject.slug === subjectSlugFromPath;
-                  const isOpenSubject = openSubjectId === subject.id;
-
-                  return (
-                    <div
-                      key={subject.id}
-                      className="rounded-md"
-                      ref={isActiveSubject ? activeItemRef : null}
-                    >
-                      <div
-                        className={`flex items-center justify-between gap-2 px-2 py-2 rounded-md transition-colors ${
-                          isActiveSubject ? "bg-blue-500" : "hover:bg-gray-50"
-                        }`}
-                      >
-                        <button
-                          onClick={() => navigateTo([subject.slug])}
-                          className={`flex-1 text-left text-sm font-medium truncate min-w-0 ${
-                            isActiveSubject ? "text-white" : "text-gray-800"
-                          }`}
-                        >
-                          <TextEllipsis
-                            maxW="max-w-[140px]"
-                            className={isActiveSubject ? "text-white" : ""}
-                          >
-                            {subject.name}
-                          </TextEllipsis>
-                        </button>
-
-                        {subject.units.length > 0 && (
-                          <button
-                            onClick={() => toggleSubject(subject.id)}
-                            aria-label={
-                              isOpenSubject
-                                ? "Collapse subject"
-                                : "Expand subject"
-                            }
-                            className={`p-1 rounded-md transition-colors shrink-0 ${
-                              isActiveSubject
-                                ? "text-white/90 hover:bg-blue-600/80"
-                                : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                            }`}
-                          >
-                            <FaChevronRight
-                              className={`h-3 w-3 transition-transform duration-200 ${
-                                isOpenSubject ? "rotate-90" : "rotate-0"
-                              }`}
-                            />
-                          </button>
-                        )}
-                      </div>
-
-                      <Collapsible isOpen={isOpenSubject}>
-                        <div
-                          id={`subject-${subject.id}`}
-                          className="mt-1 pl-2 space-y-1"
-                        >
-                          {(subject.units || []).map((unit) => {
-                            const isActiveUnit =
-                              isActiveSubject && unit.slug === unitSlugFromPath;
-                            const isOpenUnit = openUnitId === unit.id;
-
-                            return (
-                              <div
-                                key={unit.id}
-                                className="rounded-md"
-                                ref={isActiveUnit ? activeItemRef : null}
-                              >
-                                <div className="flex items-center justify-between gap-1">
-                                  <button
-                                    onClick={() =>
-                                      navigateTo([subject.slug, unit.slug])
-                                    }
-                                    className={`flex-1 text-left rounded-md px-2 py-1.5 text-sm font-medium transition-all ${
-                                      isActiveUnit
-                                        ? "bg-gray-50"
-                                        : "hover:bg-gray-50"
-                                    }`}
-                                    style={{
-                                      minWidth: 0,
-                                      overflow: "hidden",
-                                    }}
-                                  >
-                                    <TextEllipsis
-                                      maxW="max-w-[130px]"
-                                      className={
-                                        isActiveUnit ? "font-semibold" : ""
-                                      }
-                                      truncate={true}
-                                      style={{
-                                        color: "rgb(20, 164, 49)",
-                                      }}
-                                    >
-                                      {unit.name}
-                                    </TextEllipsis>
-                                  </button>
-
-                                  {unit.chapters.length > 0 && (
-                                    <button
-                                      onClick={() =>
-                                        toggleUnit(unit.id, subject.id)
-                                      }
-                                      aria-label={
-                                        isOpenUnit
-                                          ? "Collapse unit"
-                                          : "Expand unit"
-                                      }
-                                      className="p-1 rounded-md transition-colors shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                                      style={{
-                                        color: isActiveUnit
-                                          ? "rgb(20, 164, 49)"
-                                          : undefined,
-                                      }}
-                                    >
-                                      <FaChevronRight
-                                        className={`h-3 w-3 transition-transform duration-200 ${
-                                          isOpenUnit ? "rotate-90" : "rotate-0"
-                                        }`}
-                                      />
-                                    </button>
-                                  )}
-                                </div>
-
-                                <Collapsible isOpen={isOpenUnit}>
-                                  <div
-                                    id={`unit-${unit.id}`}
-                                    className="mt-1 ml-2 space-y-1 border-l border-gray-100 pl-2"
-                                  >
-                                    {(unit.chapters || []).map((chapter) => {
-                                      const isActiveChapter =
-                                        isActiveUnit &&
-                                        chapter.slug === chapterSlugFromPath;
-                                      const isOpenChapter =
-                                        openChapterId === chapter.id;
-
-                                      return (
-                                        <div
-                                          key={chapter.id}
-                                          ref={
-                                            isActiveChapter
-                                              ? activeItemRef
-                                              : null
-                                          }
-                                          className="space-y-1"
-                                        >
-                                          <div className="flex items-center justify-between gap-1">
-                                            <button
-                                              onClick={() =>
-                                                navigateTo([
-                                                  subject.slug,
-                                                  unit.slug,
-                                                  chapter.slug,
-                                                ])
-                                              }
-                                              className={`flex-1 rounded-md px-2 py-1 text-left text-xs font-medium transition-all ${
-                                                isActiveChapter
-                                                  ? "bg-gray-50"
-                                                  : "hover:bg-gray-50"
-                                              }`}
-                                              style={{
-                                                minWidth: 0,
-                                                overflow: "visible",
-                                              }}
-                                            >
-                                              <TextEllipsis
-                                                maxW="max-w-[120px]"
-                                                className={
-                                                  isActiveChapter
-                                                    ? "font-semibold"
-                                                    : ""
-                                                }
-                                                truncate={true}
-                                                style={{
-                                                  color: "rgb(22, 82, 198)",
-                                                }}
-                                              >
-                                                {chapter.name}
-                                              </TextEllipsis>
-                                            </button>
-
-                                            {chapter.topics.length > 0 && (
-                                              <button
-                                                onClick={() =>
-                                                  toggleChapter(
-                                                    chapter.id,
-                                                    subject.id,
-                                                    unit.id
-                                                  )
-                                                }
-                                                aria-label={
-                                                  isOpenChapter
-                                                    ? "Collapse chapter"
-                                                    : "Expand chapter"
-                                                }
-                                                className="p-1 rounded-md transition-colors shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                                                style={{
-                                                  color: isActiveChapter
-                                                    ? "rgb(22, 82, 198)"
-                                                    : undefined,
-                                                }}
-                                              >
-                                                <FaChevronRight
-                                                  className={`h-3 w-3 transition-transform duration-200 ${
-                                                    isOpenChapter
-                                                      ? "rotate-90"
-                                                      : "rotate-0"
-                                                  }`}
-                                                />
-                                              </button>
-                                            )}
-                                          </div>
-
-                                          <Collapsible isOpen={isOpenChapter}>
-                                            <div
-                                              id={`chapter-${chapter.id}`}
-                                              className="mt-1 ml-2 space-y-0.5 border-l border-gray-100 pl-2"
-                                            >
-                                              {(chapter.topics || []).map(
-                                                (topic) => {
-                                                  const isTopicActive =
-                                                    isActiveChapter &&
-                                                    topic.slug ===
-                                                      topicSlugFromPath;
-                                                  return (
-                                                    <div
-                                                      key={topic.id}
-                                                      ref={
-                                                        isTopicActive
-                                                          ? activeItemRef
-                                                          : null
-                                                      }
-                                                    >
-                                                      <button
-                                                        onClick={() =>
-                                                          navigateTo([
-                                                            subject.slug,
-                                                            unit.slug,
-                                                            chapter.slug,
-                                                            topic.slug,
-                                                          ])
-                                                        }
-                                                        className={`w-full rounded-md px-2 py-1 text-left text-xs font-normal transition-all ${
-                                                          isTopicActive
-                                                            ? "bg-gray-50"
-                                                            : "hover:bg-gray-50"
-                                                        }`}
-                                                        style={{
-                                                          overflow: "visible",
-                                                        }}
-                                                      >
-                                                        <TextEllipsis
-                                                          maxW="max-w-[110px]"
-                                                          className={
-                                                            isTopicActive
-                                                              ? "font-medium"
-                                                              : ""
-                                                          }
-                                                          truncate={true}
-                                                          style={{
-                                                            color: "rgb(227, 48, 141)",
-                                                          }}
-                                                        >
-                                                          {topic.name}
-                                                        </TextEllipsis>
-                                                      </button>
-                                                    </div>
-                                                  );
-                                                }
-                                              )}
-                                            </div>
-                                          </Collapsible>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </Collapsible>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </Collapsible>
-                    </div>
-                  );
-                })}
-              </div>
+              <SidebarNavigationTree
+                tree={listToRender}
+                navigateTo={navigateTo}
+                openSubjectId={openSubjectId}
+                openUnitId={openUnitId}
+                openChapterId={openChapterId}
+                toggleSubject={toggleSubject}
+                toggleUnit={toggleUnit}
+                toggleChapter={toggleChapter}
+                subjectSlugFromPath={subjectSlugFromPath}
+                unitSlugFromPath={unitSlugFromPath}
+                chapterSlugFromPath={chapterSlugFromPath}
+                topicSlugFromPath={topicSlugFromPath}
+                activeItemRef={activeItemRef}
+              />
             )}
           </div>
         </div>

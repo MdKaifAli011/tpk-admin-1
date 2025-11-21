@@ -213,7 +213,7 @@ const Navbar = ({ onMenuToggle, isMenuOpen }) => {
               <div
                 data-nav-menu
                 data-nav-menu-open={isNavMenuOpen ? "true" : "false"}
-                className="lg:hidden border-t border-gray-200 bg-white absolute top-full left-0 right-0 z-[55] shadow-lg max-h-[calc(100vh-200px)] overflow-y-auto"
+                className="lg:hidden border-t border-gray-200 bg-white absolute top-full left-0 right-0 z-[55] shadow-lg max-h-[calc(100vh-200px)] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
               >
                 <div className="p-4 space-y-2">
                   {/* Category Button */}
