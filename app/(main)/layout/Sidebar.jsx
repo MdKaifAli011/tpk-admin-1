@@ -55,6 +55,7 @@ const TextEllipsis = ({
   maxW = "max-w-[160px]",
   className = "",
   truncate = false,
+  style = {},
 }) => {
   const displayText = truncate ? truncateTo30(children) : children;
 
@@ -66,9 +67,9 @@ const TextEllipsis = ({
   if (truncate) {
     return (
       <span
-        className={`whitespace-nowrap inline-block text-sm text-gray-800 ${className}`}
+        className={`whitespace-nowrap inline-block text-sm ${className}`}
         title={typeof children === "string" ? children : undefined}
-        style={{ maxWidth: "200px" }}
+        style={{ maxWidth: "200px", ...style }}
       >
         {displayText}
       </span>
@@ -78,8 +79,9 @@ const TextEllipsis = ({
   // Normal CSS truncation for non-truncated items
   return (
     <span
-      className={`truncate whitespace-nowrap overflow-hidden block ${maxW} text-sm text-gray-800 ${className}`}
+      className={`truncate whitespace-nowrap overflow-hidden block ${maxW} text-sm ${className}`}
       title={typeof children === "string" ? children : undefined}
+      style={style}
     >
       {displayText}
     </span>
@@ -853,19 +855,25 @@ export default function Sidebar({ isOpen = true, onClose }) {
                                     onClick={() =>
                                       navigateTo([subject.slug, unit.slug])
                                     }
-                                    className={`flex-1 text-left rounded-md px-2 py-1.5 text-sm font-medium transition-colors ${
+                                    className={`flex-1 text-left rounded-md px-2 py-1.5 text-sm font-medium transition-all ${
                                       isActiveUnit
-                                        ? "bg-blue-50 text-blue-600"
-                                        : "text-gray-700 hover:bg-gray-50"
+                                        ? "bg-gray-50"
+                                        : "hover:bg-gray-50"
                                     }`}
-                                    style={{ minWidth: 0, overflow: "hidden" }}
+                                    style={{
+                                      minWidth: 0,
+                                      overflow: "hidden",
+                                    }}
                                   >
                                     <TextEllipsis
                                       maxW="max-w-[130px]"
                                       className={
-                                        isActiveUnit ? "text-blue-600" : ""
+                                        isActiveUnit ? "font-semibold" : ""
                                       }
                                       truncate={true}
+                                      style={{
+                                        color: "rgb(20, 164, 49)",
+                                      }}
                                     >
                                       {unit.name}
                                     </TextEllipsis>
@@ -881,11 +889,12 @@ export default function Sidebar({ isOpen = true, onClose }) {
                                           ? "Collapse unit"
                                           : "Expand unit"
                                       }
-                                      className={`p-1 rounded-md transition-colors shrink-0 ${
-                                        isActiveUnit
-                                          ? "text-blue-600 hover:bg-blue-50"
-                                          : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                                      }`}
+                                      className="p-1 rounded-md transition-colors shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                                      style={{
+                                        color: isActiveUnit
+                                          ? "rgb(20, 164, 49)"
+                                          : undefined,
+                                      }}
                                     >
                                       <FaChevronRight
                                         className={`h-3 w-3 transition-transform duration-200 ${
@@ -927,10 +936,10 @@ export default function Sidebar({ isOpen = true, onClose }) {
                                                   chapter.slug,
                                                 ])
                                               }
-                                              className={`flex-1 rounded-md px-2 py-1 text-left text-xs font-medium transition-colors ${
+                                              className={`flex-1 rounded-md px-2 py-1 text-left text-xs font-medium transition-all ${
                                                 isActiveChapter
-                                                  ? "bg-blue-50 text-blue-600"
-                                                  : "text-gray-600 hover:bg-gray-50"
+                                                  ? "bg-gray-50"
+                                                  : "hover:bg-gray-50"
                                               }`}
                                               style={{
                                                 minWidth: 0,
@@ -941,10 +950,13 @@ export default function Sidebar({ isOpen = true, onClose }) {
                                                 maxW="max-w-[120px]"
                                                 className={
                                                   isActiveChapter
-                                                    ? "text-blue-600"
+                                                    ? "font-semibold"
                                                     : ""
                                                 }
                                                 truncate={true}
+                                                style={{
+                                                  color: "rgb(22, 82, 198)",
+                                                }}
                                               >
                                                 {chapter.name}
                                               </TextEllipsis>
@@ -964,11 +976,12 @@ export default function Sidebar({ isOpen = true, onClose }) {
                                                     ? "Collapse chapter"
                                                     : "Expand chapter"
                                                 }
-                                                className={`p-1 rounded-md transition-colors shrink-0 ${
-                                                  isActiveChapter
-                                                    ? "text-blue-600 hover:bg-blue-50"
-                                                    : "text-gray-400 hover:text-gray-600 hover:bg-gray-100"
-                                                }`}
+                                                className="p-1 rounded-md transition-colors shrink-0 text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                                                style={{
+                                                  color: isActiveChapter
+                                                    ? "rgb(22, 82, 198)"
+                                                    : undefined,
+                                                }}
                                               >
                                                 <FaChevronRight
                                                   className={`h-3 w-3 transition-transform duration-200 ${
@@ -1010,10 +1023,10 @@ export default function Sidebar({ isOpen = true, onClose }) {
                                                             topic.slug,
                                                           ])
                                                         }
-                                                        className={`w-full rounded-md px-2 py-1 text-left text-xs font-normal transition-colors ${
+                                                        className={`w-full rounded-md px-2 py-1 text-left text-xs font-normal transition-all ${
                                                           isTopicActive
-                                                            ? "bg-blue-600 text-white"
-                                                            : "text-gray-600 hover:bg-gray-50"
+                                                            ? "bg-gray-50"
+                                                            : "hover:bg-gray-50"
                                                         }`}
                                                         style={{
                                                           overflow: "visible",
@@ -1023,10 +1036,13 @@ export default function Sidebar({ isOpen = true, onClose }) {
                                                           maxW="max-w-[110px]"
                                                           className={
                                                             isTopicActive
-                                                              ? "text-white"
+                                                              ? "font-medium"
                                                               : ""
                                                           }
                                                           truncate={true}
+                                                          style={{
+                                                            color: "rgb(227, 48, 141)",
+                                                          }}
                                                         >
                                                           {topic.name}
                                                         </TextEllipsis>
