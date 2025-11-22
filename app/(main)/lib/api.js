@@ -36,7 +36,7 @@ export const fetchExams = async (options = {}) => {
     // Use fetch for server-side, axios for client-side
     if (isServer) {
       const response = await fetch(url, {
-        cache: 'no-store', // Always fetch fresh data for exams
+        cache: "no-store", // Always fetch fresh data for exams
       });
 
       if (!response.ok) {
@@ -164,32 +164,33 @@ export const fetchSubjectsByExam = async (examId, options = {}) => {
     logger.warn("fetchSubjectsByExam: No examId provided");
     return [];
   }
-  
+
   const isServer = typeof window === "undefined";
   const baseUrl = getBaseUrl();
-  
+
   try {
     const { page = 1, limit = 100 } = options;
     const url = `${baseUrl}/api/subject?examId=${examId}&page=${page}&limit=${limit}&status=${STATUS.ACTIVE}`;
-    
+
     if (isServer) {
       // Server-side: use fetch
       const response = await fetch(url, {
-        cache: 'no-store', // Always fetch fresh data
+        cache: "no-store", // Always fetch fresh data
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data?.success) {
           const subjects = data.data || [];
-          
+
           // Handle paginated response
           if (data.pagination) {
             const validSubjects = subjects.filter((subject) => {
               const subjectExamId = subject.examId?._id || subject.examId;
-              const matchesExam = 
+              const matchesExam =
                 String(subjectExamId) === String(examId) ||
-                subject.examId?.name?.toLowerCase() === String(examId).toLowerCase();
+                subject.examId?.name?.toLowerCase() ===
+                  String(examId).toLowerCase();
               const matchesStatus = subject.status
                 ? subject.status.toLowerCase() === STATUS.ACTIVE.toLowerCase()
                 : false;
@@ -199,14 +200,15 @@ export const fetchSubjectsByExam = async (examId, options = {}) => {
               (a, b) => (a.orderNumber || 0) - (b.orderNumber || 0)
             );
           }
-          
+
           // Handle legacy response format
           const filteredSubjects = subjects.filter((subject) => {
             const subjectExamId = subject.examId?._id || subject.examId;
             const matchesExam =
               String(subjectExamId) === String(examId) ||
               subject.examId === examId ||
-              subject.examId?.name?.toLowerCase() === String(examId).toLowerCase();
+              subject.examId?.name?.toLowerCase() ===
+                String(examId).toLowerCase();
             const matchesStatus = subject.status
               ? subject.status.toLowerCase() === STATUS.ACTIVE.toLowerCase()
               : false;
@@ -220,17 +222,19 @@ export const fetchSubjectsByExam = async (examId, options = {}) => {
       return [];
     } else {
       // Client-side: use axios
-      const response = await api.get(`/subject?examId=${examId}&page=${page}&limit=${limit}&status=${STATUS.ACTIVE}`);
+      const response = await api.get(
+        `/subject?examId=${examId}&page=${page}&limit=${limit}&status=${STATUS.ACTIVE}`
+      );
 
       if (response.data?.success) {
         const subjects = response.data.data || [];
-        
+
         // Handle paginated response - API already filters by examId, but let's verify
         if (response.data.pagination) {
           // Double-check that subjects belong to the correct exam
           const validSubjects = subjects.filter((subject) => {
             const subjectExamId = subject.examId?._id || subject.examId;
-            const matchesExam = 
+            const matchesExam =
               String(subjectExamId) === String(examId) ||
               subject.examId?.name?.toLowerCase() ===
                 String(examId).toLowerCase();
@@ -239,20 +243,21 @@ export const fetchSubjectsByExam = async (examId, options = {}) => {
               : false;
             return matchesExam && matchesStatus;
           });
-          
+
           // Sort by orderNumber
           return validSubjects.sort(
             (a, b) => (a.orderNumber || 0) - (b.orderNumber || 0)
           );
         }
-        
+
         // Handle legacy response format
         const filteredSubjects = subjects.filter((subject) => {
           const subjectExamId = subject.examId?._id || subject.examId;
           const matchesExam =
             String(subjectExamId) === String(examId) ||
             subject.examId === examId ||
-            subject.examId?.name?.toLowerCase() === String(examId).toLowerCase();
+            subject.examId?.name?.toLowerCase() ===
+              String(examId).toLowerCase();
           const matchesStatus = subject.status
             ? subject.status.toLowerCase() === STATUS.ACTIVE.toLowerCase()
             : false;
@@ -263,8 +268,11 @@ export const fetchSubjectsByExam = async (examId, options = {}) => {
           (a, b) => (a.orderNumber || 0) - (b.orderNumber || 0)
         );
       }
-      
-      logger.warn("fetchSubjectsByExam: Response not successful:", response.data);
+
+      logger.warn(
+        "fetchSubjectsByExam: Response not successful:",
+        response.data
+      );
       return [];
     }
   } catch (error) {
@@ -330,10 +338,10 @@ export const fetchSubjectById = async (subjectId) => {
 // Fetch units by subject ID and exam ID (optimized with pagination)
 export const fetchUnitsBySubject = async (subjectId, examId, options = {}) => {
   if (!subjectId) return [];
-  
+
   const isServer = typeof window === "undefined";
   const baseUrl = getBaseUrl();
-  
+
   try {
     const { page = 1, limit = 100 } = options;
     const url = `${baseUrl}/api/unit?subjectId=${subjectId}${
@@ -343,7 +351,7 @@ export const fetchUnitsBySubject = async (subjectId, examId, options = {}) => {
     if (isServer) {
       // Server-side: use fetch
       const response = await fetch(url, {
-        cache: 'no-store', // Always fetch fresh data
+        cache: "no-store", // Always fetch fresh data
       });
 
       if (response.ok) {
@@ -368,9 +376,11 @@ export const fetchUnitsBySubject = async (subjectId, examId, options = {}) => {
       return [];
     } else {
       // Client-side: use axios
-      const response = await api.get(`/unit?subjectId=${subjectId}${
-        examId ? `&examId=${examId}` : ""
-      }&page=${page}&limit=${limit}&status=${STATUS.ACTIVE}`);
+      const response = await api.get(
+        `/unit?subjectId=${subjectId}${
+          examId ? `&examId=${examId}` : ""
+        }&page=${page}&limit=${limit}&status=${STATUS.ACTIVE}`
+      );
 
       if (response.data.success) {
         // Handle paginated response
@@ -399,10 +409,10 @@ export const fetchUnitsBySubject = async (subjectId, examId, options = {}) => {
 // Fetch chapters by unit ID (optimized with pagination)
 export const fetchChaptersByUnit = async (unitId, options = {}) => {
   if (!unitId) return [];
-  
+
   const isServer = typeof window === "undefined";
   const baseUrl = getBaseUrl();
-  
+
   try {
     const { page = 1, limit = 100 } = options;
     const url = `${baseUrl}/api/chapter?unitId=${unitId}&page=${page}&limit=${limit}&status=${STATUS.ACTIVE}`;
@@ -410,7 +420,7 @@ export const fetchChaptersByUnit = async (unitId, options = {}) => {
     if (isServer) {
       // Server-side: use fetch
       const response = await fetch(url, {
-        cache: 'no-store', // Always fetch fresh data
+        cache: "no-store", // Always fetch fresh data
       });
 
       if (response.ok) {
@@ -610,10 +620,10 @@ export const fetchChapterById = async (chapterId) => {
 // Fetch topics by chapter ID (optimized with pagination)
 export const fetchTopicsByChapter = async (chapterId, options = {}) => {
   if (!chapterId) return [];
-  
+
   const isServer = typeof window === "undefined";
   const baseUrl = getBaseUrl();
-  
+
   try {
     const { page = 1, limit = 100 } = options;
     const url = `${baseUrl}/api/topic?chapterId=${chapterId}&page=${page}&limit=${limit}&status=${STATUS.ACTIVE}`;
@@ -621,7 +631,7 @@ export const fetchTopicsByChapter = async (chapterId, options = {}) => {
     if (isServer) {
       // Server-side: use fetch
       const response = await fetch(url, {
-        cache: 'no-store', // Always fetch fresh data
+        cache: "no-store", // Always fetch fresh data
       });
 
       if (response.ok) {
@@ -726,10 +736,10 @@ export const fetchTopicById = async (topicId) => {
 // Fetch subtopics by topic ID (optimized with pagination)
 export const fetchSubTopicsByTopic = async (topicId, options = {}) => {
   if (!topicId) return [];
-  
+
   const isServer = typeof window === "undefined";
   const baseUrl = getBaseUrl();
-  
+
   try {
     const { page = 1, limit = 100 } = options;
     const url = `${baseUrl}/api/subtopic?topicId=${topicId}&page=${page}&limit=${limit}&status=${STATUS.ACTIVE}`;
@@ -737,7 +747,7 @@ export const fetchSubTopicsByTopic = async (topicId, options = {}) => {
     if (isServer) {
       // Server-side: use fetch
       const response = await fetch(url, {
-        cache: 'no-store', // Always fetch fresh data
+        cache: "no-store", // Always fetch fresh data
       });
 
       if (response.ok) {
@@ -750,7 +760,8 @@ export const fetchSubTopicsByTopic = async (topicId, options = {}) => {
           // Handle legacy response format
           const filteredSubTopics = (data.data || []).filter(
             (sub) =>
-              sub.status && sub.status.toLowerCase() === STATUS.ACTIVE.toLowerCase()
+              sub.status &&
+              sub.status.toLowerCase() === STATUS.ACTIVE.toLowerCase()
           );
           // Sort by orderNumber
           return filteredSubTopics.sort(
@@ -773,7 +784,8 @@ export const fetchSubTopicsByTopic = async (topicId, options = {}) => {
         // Handle legacy response format
         const filteredSubTopics = (response.data.data || []).filter(
           (sub) =>
-            sub.status && sub.status.toLowerCase() === STATUS.ACTIVE.toLowerCase()
+            sub.status &&
+            sub.status.toLowerCase() === STATUS.ACTIVE.toLowerCase()
         );
         // Sort by orderNumber
         return filteredSubTopics.sort(
@@ -855,9 +867,12 @@ export const fetchExamDetailsById = async (examId) => {
 
   try {
     if (isServer) {
-      const response = await fetch(`${baseUrl}/api/exam/${examIdString}/details`, {
-        cache: 'no-store', // Always fetch fresh data for metadata
-      });
+      const response = await fetch(
+        `${baseUrl}/api/exam/${examIdString}/details`,
+        {
+          cache: "no-store", // Always fetch fresh data for metadata
+        }
+      );
 
       if (response.ok) {
         const data = await response.json();
@@ -907,14 +922,16 @@ export const fetchSubjectDetailsById = async (subjectId) => {
   const baseUrl = getBaseUrl();
 
   // Convert subjectId to string if it's an ObjectId object
-  const subjectIdString = subjectId.toString ? subjectId.toString() : String(subjectId);
+  const subjectIdString = subjectId.toString
+    ? subjectId.toString()
+    : String(subjectId);
 
   try {
     if (isServer) {
       const response = await fetch(
         `${baseUrl}/api/subject/${subjectIdString}/details`,
         {
-          cache: 'no-store', // Always fetch fresh data for metadata
+          cache: "no-store", // Always fetch fresh data for metadata
         }
       );
 
@@ -960,7 +977,9 @@ export const fetchSubjectDetailsById = async (subjectId) => {
 // Fetch unit details
 export const fetchUnitDetailsById = async (unitId) => {
   if (!unitId) {
-    console.warn(`[API] fetchUnitDetailsById called with null/undefined unitId`);
+    console.warn(
+      `[API] fetchUnitDetailsById called with null/undefined unitId`
+    );
     return null;
   }
 
@@ -969,33 +988,41 @@ export const fetchUnitDetailsById = async (unitId) => {
 
   // Convert unitId to string if it's an ObjectId object
   const unitIdString = unitId.toString ? unitId.toString() : String(unitId);
-  
-  console.log(`[API] Fetching unit details for unitId: ${unitIdString} (type: ${typeof unitId})`);
+
+  console.log(
+    `[API] Fetching unit details for unitId: ${unitIdString} (type: ${typeof unitId})`
+  );
 
   try {
-      if (isServer) {
-        const url = `${baseUrl}/api/unit/${unitIdString}/details`;
-        console.log(`[API] Fetch URL: ${url}`);
-        const response = await fetch(url, {
-          cache: 'no-store', // Always fetch fresh data for metadata (no caching)
-        });
+    if (isServer) {
+      const url = `${baseUrl}/api/unit/${unitIdString}/details`;
+      console.log(`[API] Fetch URL: ${url}`);
+      const response = await fetch(url, {
+        cache: "no-store", // Always fetch fresh data for metadata (no caching)
+      });
 
-        console.log(`[API] Response status: ${response.status}`);
-        if (response.ok) {
-          const data = await response.json();
-          console.log(`[API] Response data (full):`, JSON.stringify(data, null, 2));
-          if (data.success && data.data) {
-            console.log(`[API] Unit details found:`, JSON.stringify(data.data, null, 2));
-            console.log(`[API] Title from API: "${data.data.title}"`);
-            console.log(`[API] Title type: ${typeof data.data.title}`);
-            return data.data;
-          } else {
-            console.warn(`[API] Response not successful or no data:`, data);
-          }
+      console.log(`[API] Response status: ${response.status}`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log(
+          `[API] Response data (full):`,
+          JSON.stringify(data, null, 2)
+        );
+        if (data.success && data.data) {
+          console.log(
+            `[API] Unit details found:`,
+            JSON.stringify(data.data, null, 2)
+          );
+          console.log(`[API] Title from API: "${data.data.title}"`);
+          console.log(`[API] Title type: ${typeof data.data.title}`);
+          return data.data;
         } else {
-          const errorText = await response.text();
-          console.error(`[API] Response not OK: ${response.status}`, errorText);
+          console.warn(`[API] Response not successful or no data:`, data);
         }
+      } else {
+        const errorText = await response.text();
+        console.error(`[API] Response not OK: ${response.status}`, errorText);
+      }
       return {
         content: "",
         title: "",
@@ -1037,14 +1064,16 @@ export const fetchChapterDetailsById = async (chapterId) => {
   const baseUrl = getBaseUrl();
 
   // Convert chapterId to string if it's an ObjectId object
-  const chapterIdString = chapterId.toString ? chapterId.toString() : String(chapterId);
+  const chapterIdString = chapterId.toString
+    ? chapterId.toString()
+    : String(chapterId);
 
   try {
     if (isServer) {
       const response = await fetch(
         `${baseUrl}/api/chapter/${chapterIdString}/details`,
         {
-          cache: 'no-store', // Always fetch fresh data for metadata
+          cache: "no-store", // Always fetch fresh data for metadata
         }
       );
 
@@ -1099,9 +1128,12 @@ export const fetchTopicDetailsById = async (topicId) => {
 
   try {
     if (isServer) {
-      const response = await fetch(`${baseUrl}/api/topic/${topicIdString}/details`, {
-        cache: 'no-store', // Always fetch fresh data for metadata
-      });
+      const response = await fetch(
+        `${baseUrl}/api/topic/${topicIdString}/details`,
+        {
+          cache: "no-store", // Always fetch fresh data for metadata
+        }
+      );
 
       if (response.ok) {
         const data = await response.json();
@@ -1150,14 +1182,16 @@ export const fetchSubTopicDetailsById = async (subTopicId) => {
   const baseUrl = getBaseUrl();
 
   // Convert subTopicId to string if it's an ObjectId object
-  const subTopicIdString = subTopicId.toString ? subTopicId.toString() : String(subTopicId);
+  const subTopicIdString = subTopicId.toString
+    ? subTopicId.toString()
+    : String(subTopicId);
 
   try {
     if (isServer) {
       const response = await fetch(
         `${baseUrl}/api/subtopic/${subTopicIdString}/details`,
         {
-          cache: 'no-store', // Always fetch fresh data for metadata
+          cache: "no-store", // Always fetch fresh data for metadata
         }
       );
 
@@ -1441,18 +1475,18 @@ export const fetchTree = async (options = {}) => {
 
     const isServer = typeof window === "undefined";
     const baseUrl = getBaseUrl();
-    
+
     // Build query string
     let queryString = `status=${status}`;
     if (examId) {
       queryString += `&examId=${examId}`;
     }
-    
+
     const url = `${baseUrl}/api/tree?${queryString}`;
 
     if (isServer) {
       const response = await fetch(url, {
-        cache: 'no-store', // Always fetch fresh data for tree
+        cache: "no-store", // Always fetch fresh data for tree
       });
 
       if (!response.ok) {
@@ -1476,6 +1510,162 @@ export const fetchTree = async (options = {}) => {
   } catch (error) {
     logger.error("Error fetching tree:", error);
     return [];
+  }
+};
+
+// Fetch definitions by subtopic
+export const fetchDefinitionsBySubTopic = async (subTopicId, options = {}) => {
+  if (!subTopicId) return [];
+
+  const { status = STATUS.ACTIVE, page = 1, limit = 1000 } = options;
+
+  const isServer = typeof window === "undefined";
+  const baseUrl = getBaseUrl();
+
+  try {
+    const url = `${baseUrl}/api/definition?subTopicId=${subTopicId}&status=${status}&page=${page}&limit=${limit}`;
+
+    if (isServer) {
+      const response = await fetch(url, {
+        next: { revalidate: 60 },
+      });
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const data = await response.json();
+      if (data.success && data.data) {
+        // Sort by orderNumber
+        return (data.data || []).sort(
+          (a, b) => (a.orderNumber || 0) - (b.orderNumber || 0)
+        );
+      }
+      return [];
+    } else {
+      const response = await api.get(
+        `/definition?subTopicId=${subTopicId}&status=${status}&page=${page}&limit=${limit}`
+      );
+
+      if (response.data.success && response.data.data) {
+        // Sort by orderNumber
+        return (response.data.data || []).sort(
+          (a, b) => (a.orderNumber || 0) - (b.orderNumber || 0)
+        );
+      }
+      return [];
+    }
+  } catch (error) {
+    logger.error("Error fetching definitions:", error);
+    return [];
+  }
+};
+
+// Fetch definition by ID or slug
+export const fetchDefinitionById = async (definitionId) => {
+  if (!definitionId) return null;
+
+  const isServer = typeof window === "undefined";
+  const baseUrl = getBaseUrl();
+
+  try {
+    // Try by ID first (only if it looks like an ObjectId)
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(definitionId);
+    if (isObjectId) {
+      if (isServer) {
+        try {
+          const response = await fetch(
+            `${baseUrl}/api/definition/${definitionId}`,
+            {
+              next: { revalidate: 60 },
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.data) {
+              return data.data;
+            }
+          }
+        } catch (err) {
+          // Continue to fallback
+        }
+      } else {
+        try {
+          const response = await api.get(`/definition/${definitionId}`);
+          if (response.data.success && response.data.data) {
+            return response.data.data;
+          }
+        } catch (err) {
+          // Continue to fallback
+        }
+      }
+    }
+
+    // Fallback: search by slug (would need a search endpoint)
+    // For now, return null if not found by ID
+    return null;
+  } catch (error) {
+    logger.error("Error fetching definition:", error);
+    return null;
+  }
+};
+
+// Fetch definition details by definition ID
+export const fetchDefinitionDetailsById = async (definitionId) => {
+  if (!definitionId) return null;
+
+  const isServer = typeof window === "undefined";
+  const baseUrl = getBaseUrl();
+
+  try {
+    const url = `${baseUrl}/api/definition/${definitionId}/details`;
+
+    if (isServer) {
+      const response = await fetch(url, {
+        next: { revalidate: 60 },
+      });
+
+      if (!response.ok) {
+        return {
+          content: "",
+          title: "",
+          metaDescription: "",
+          keywords: "",
+        };
+      }
+
+      const data = await response.json();
+      if (data.success && data.data) {
+        return data.data;
+      }
+      return {
+        content: "",
+        title: "",
+        metaDescription: "",
+        keywords: "",
+      };
+    } else {
+      const response = await api.get(`/definition/${definitionId}/details`);
+
+      if (response.data.success && response.data.data) {
+        return response.data.data;
+      }
+      return {
+        content: "",
+        title: "",
+        metaDescription: "",
+        keywords: "",
+      };
+    }
+  } catch (error) {
+    logger.error("Error fetching definition details:", error);
+    return {
+      content: "",
+      title: "",
+      metaDescription: "",
+      keywords: "",
+    };
   }
 };
 

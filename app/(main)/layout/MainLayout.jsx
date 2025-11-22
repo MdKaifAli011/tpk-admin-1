@@ -32,34 +32,29 @@ const MainLayout = ({ children }) => {
   return (
     <ErrorBoundary>
       <div className="flex flex-col min-h-screen bg-gray-50">
-
         {/* NAVBAR */}
         <Navbar onMenuToggle={toggleSidebar} isMenuOpen={isSidebarOpen} />
 
         <div className="flex flex-1 relative">
-
-          {/* SIDEBAR (Premium 280px Glass UI) */}
+          {/* SIDEBAR (Premium 300px Glass UI) */}
           <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} />
 
-          {/* OVERLAY (Mobile only) */}
-          {isSidebarOpen && (
-            <div
-              className="fixed inset-0 z-30 bg-black/30 backdrop-blur-[1px] lg:hidden"
-              onClick={closeSidebar}
-            />
-          )}
+          {/* OVERLAY (Mobile only) - Removed duplicate, handled in Sidebar */}
 
           {/* MAIN CONTENT */}
           <main
             className="
               flex-1
               pt-[110px] md:pt-[120px]
-              lg:ml-[280px]
+              lg:ml-[300px]
               bg-white
               overflow-y-auto
               min-h-0
               px-4 md:px-6 pb-6
               transition-all
+              [&::-webkit-scrollbar]:hidden
+              [-ms-overflow-style:none]
+              [scrollbar-width:none]
             "
           >
             <div className="w-full max-w-7xl mx-auto">

@@ -1,12 +1,9 @@
 import React from "react";
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import MainLayout from "../../../../../../layout/MainLayout";
-import {
-  FaFileAlt,
-} from "react-icons/fa";
-import TabsClient from "../../../../../../components/TabsClient";
-import NavigationClient from "../../../../../../components/NavigationClient";
+import MainLayout from "../../../../../../../layout/MainLayout";
+import { FaBookOpen } from "react-icons/fa";
+import TabsClient from "../../../../../../../components/TabsClient";
+import NavigationClient from "../../../../../../../components/NavigationClient";
 import { ERROR_MESSAGES } from "@/constants";
 import {
   fetchExamById,
@@ -21,19 +18,20 @@ import {
   fetchSubTopicsByTopic,
   fetchSubTopicById,
   fetchDefinitionsBySubTopic,
+  fetchDefinitionById,
   createSlug,
   findByIdOrSlug,
-  fetchSubTopicDetailsById,
-} from "../../../../../../lib/api";
+  fetchDefinitionDetailsById,
+} from "../../../../../../../lib/api";
 import {
-  getNextSubtopic,
-  getPreviousSubtopic,
-} from "../../../../../../lib/hierarchicalNavigation";
+  getNextDefinition,
+  getPreviousDefinition,
+} from "../../../../../../../lib/hierarchicalNavigation";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-const SubTopicPage = async ({ params }) => {
+const DefinitionPage = async ({ params }) => {
   const {
     exam: examId,
     subject: subjectSlug,
@@ -41,6 +39,7 @@ const SubTopicPage = async ({ params }) => {
     chapter: chapterSlug,
     topic: topicSlug,
     subtopic: subtopicSlug,
+    definition: definitionSlug,
   } = await params;
 
   // Fetch exam
@@ -115,26 +114,38 @@ const SubTopicPage = async ({ params }) => {
     notFound();
   }
 
-  // Fetch full subtopic data, details, and definitions in parallel
-  const [fullSubTopicData, subTopicDetails, fetchedDefinitions] = await Promise.all([
-    fetchSubTopicById(foundSubTopic._id),
-    fetchSubTopicDetailsById(foundSubTopic._id).catch(() => ({
+  // Fetch full subtopic data
+  const fullSubTopicData = await fetchSubTopicById(foundSubTopic._id);
+  const subTopic = fullSubTopicData || foundSubTopic;
+
+  // Fetch definitions for this subtopic
+  const fetchedDefinitions = await fetchDefinitionsBySubTopic(foundSubTopic._id).catch(() => []);
+
+  // Find definition by slug
+  const foundDefinition = findByIdOrSlug(fetchedDefinitions, definitionSlug);
+  if (!foundDefinition) {
+    notFound();
+  }
+
+  // Fetch full definition data and details in parallel
+  const [fullDefinitionData, definitionDetails] = await Promise.all([
+    fetchDefinitionById(foundDefinition._id),
+    fetchDefinitionDetailsById(foundDefinition._id).catch(() => ({
       content: "",
       title: "",
       metaDescription: "",
       keywords: "",
     })),
-    fetchDefinitionsBySubTopic(foundSubTopic._id).catch(() => []),
   ]);
 
-  const subTopic = fullSubTopicData || foundSubTopic;
+  const definition = fullDefinitionData || foundDefinition;
 
-  // Find current subtopic index for navigation
-  const index = fetchedSubTopics.findIndex(
-    (st) =>
-      st._id === foundSubTopic._id ||
-      createSlug(st.name) === subtopicSlug ||
-      st.name?.toLowerCase() === subtopicSlug.toLowerCase()
+  // Find current definition index for navigation
+  const index = fetchedDefinitions.findIndex(
+    (def) =>
+      def._id === foundDefinition._id ||
+      createSlug(def.name) === definitionSlug ||
+      def.name?.toLowerCase() === definitionSlug.toLowerCase()
   );
 
   const examSlug = createSlug(fetchedExam.name);
@@ -146,7 +157,7 @@ const SubTopicPage = async ({ params }) => {
 
   // Calculate hierarchical navigation
   const [nextNav, prevNav] = await Promise.all([
-    getNextSubtopic({
+    getNextDefinition({
       examId: examIdValue,
       examSlug: examSlug,
       subjectId: foundSubject._id,
@@ -160,9 +171,9 @@ const SubTopicPage = async ({ params }) => {
       subTopicId: foundSubTopic._id,
       subTopicSlug: subTopicSlugValue,
       currentIndex: index,
-      allItems: fetchedSubTopics,
+      allItems: fetchedDefinitions,
     }),
-    getPreviousSubtopic({
+    getPreviousDefinition({
       examId: examIdValue,
       examSlug: examSlug,
       subjectId: foundSubject._id,
@@ -176,7 +187,7 @@ const SubTopicPage = async ({ params }) => {
       subTopicId: foundSubTopic._id,
       subTopicSlug: subTopicSlugValue,
       currentIndex: index,
-      allItems: fetchedSubTopics,
+      allItems: fetchedDefinitions,
     }),
   ]);
 
@@ -188,14 +199,14 @@ const SubTopicPage = async ({ params }) => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
-                <FaFileAlt className="text-2xl text-indigo-600" />
+                <FaBookOpen className="text-2xl text-indigo-600" />
                 <div>
                   <h1 className="text-2xl font-bold text-indigo-900">
-                    {subTopic.name}
+                    {definition.name}
                   </h1>
                   <p className="text-sm text-gray-600 mt-1">
                     {fetchedExam.name} &gt; {subject.name} &gt; {unit.name} &gt;{" "}
-                    {chapter.name} &gt; {topic.name} &gt; {subTopic.name}
+                    {chapter.name} &gt; {topic.name} &gt; {subTopic.name} &gt; {definition.name}
                   </p>
                 </div>
               </div>
@@ -203,7 +214,7 @@ const SubTopicPage = async ({ params }) => {
 
             {/* Progress */}
             <div className="text-right">
-              <p className="text-xs text-gray-500 mb-1">Sub Topic Progress</p>
+              <p className="text-xs text-gray-500 mb-1">Definition Progress</p>
               <div className="flex items-center gap-3">
                 <span className="font-semibold text-gray-700">0%</span>
                 <div className="w-28 h-2 bg-gray-200 rounded-full overflow-hidden">
@@ -219,72 +230,29 @@ const SubTopicPage = async ({ params }) => {
 
         {/* Tabs */}
         <TabsClient
-          content={subTopicDetails?.content}
+          content={definitionDetails?.content}
           examId={fetchedExam._id}
           subjectId={subject._id}
           unitId={unit._id}
           chapterId={chapter._id}
           topicId={topic._id}
           subTopicId={subTopic._id}
-          entityName={subTopic.name}
-          entityType="subtopic"
+          entityName={definition.name}
+          entityType="definition"
           definitions={fetchedDefinitions}
+          currentDefinitionId={definition._id}
+          examSlug={examSlug}
+          subjectSlug={subjectSlugValue}
+          unitSlug={unitSlugValue}
+          chapterSlug={chapterSlugValue}
+          topicSlug={topicSlugValue}
+          subTopicSlug={subTopicSlugValue}
         />
-
-        {/* Definitions Section */}
-        {fetchedDefinitions && fetchedDefinitions.length > 0 && (
-          <section className="bg-transparent">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
-                <div className="flex items-start gap-2">
-                  <FaFileAlt className="text-lg sm:text-xl text-indigo-600" />
-                  <div>
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900">
-                      Definitions
-                    </h2>
-                    <p className="mt-1 text-xs sm:text-sm text-gray-500">
-                      Explore definitions related to this subtopic.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="divide-y divide-gray-100">
-                {fetchedDefinitions.map((definition, index) => {
-                  const definitionSlug = definition.slug || createSlug(definition.name);
-                  return (
-                    <a
-                      key={definition._id}
-                      href={`/${examSlug}/${subjectSlugValue}/${unitSlugValue}/${chapterSlugValue}/${topicSlugValue}/${subTopicSlugValue}/${definitionSlug}`}
-                      className="block px-4 sm:px-6 py-4 hover:bg-gray-50 transition-colors"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1 min-w-0">
-                          <h3 className="text-sm sm:text-base font-medium text-gray-900 hover:text-indigo-600 transition-colors">
-                            {definition.name}
-                          </h3>
-                          {definition.orderNumber && (
-                            <p className="text-xs text-gray-500 mt-1">
-                              Order: {definition.orderNumber}
-                            </p>
-                          )}
-                        </div>
-                        <div className="ml-4 flex-shrink-0">
-                          <span className="text-xs text-gray-400">→</span>
-                        </div>
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
-        )}
 
         {/* Navigation */}
         <NavigationClient
-          backUrl={`/${examSlug}/${subjectSlugValue}/${unitSlugValue}/${chapterSlugValue}/${topicSlugValue}`}
-          backLabel={`Back to ${topic.name}`}
+          backUrl={`/${examSlug}/${subjectSlugValue}/${unitSlugValue}/${chapterSlugValue}/${topicSlugValue}/${subTopicSlugValue}`}
+          backLabel={`Back to ${subTopic.name}`}
           prevNav={prevNav}
           nextNav={nextNav}
         />
@@ -293,4 +261,5 @@ const SubTopicPage = async ({ params }) => {
   );
 };
 
-export default SubTopicPage;
+export default DefinitionPage;
+
