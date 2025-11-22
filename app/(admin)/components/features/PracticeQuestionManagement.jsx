@@ -32,6 +32,9 @@ const isValidObjectId = (id) => {
 
 const PracticeQuestionManagement = ({ subCategoryId }) => {
   const { canCreate, canEdit, canDelete, canReorder, role } = usePermissions();
+  
+  // Check if user can import data (only admin and super_moderator)
+  const canImport = role === "admin" || role === "super_moderator";
   const [showAddForm, setShowAddForm] = useState(false);
   const [isFormLoading, setIsFormLoading] = useState(false);
   const [currentSubCategory, setCurrentSubCategory] = useState(null);
@@ -405,6 +408,14 @@ const PracticeQuestionManagement = ({ subCategoryId }) => {
 
   // ✅ Download CSV Template with subCategoryId
   const handleDownloadTemplate = () => {
+    // Check permission
+    if (!canImport) {
+      showErrorRef.current(
+        "Only administrators and super moderators can download CSV templates"
+      );
+      return;
+    }
+    
     if (!subCategoryId) {
       showErrorRef.current(
         "SubCategory ID is required for downloading template"
@@ -434,6 +445,14 @@ What is the capital of India?,Mumbai,Delhi,Kolkata,Chennai,B,https://example.com
 
   // ✅ Process CSV Import (after confirmation)
   const processCSVImport = async (parsedData) => {
+    // Check permission
+    if (!canImport) {
+      showErrorRef.current(
+        "Only administrators and super moderators can import data"
+      );
+      return;
+    }
+    
     setIsImporting(true);
     setImportError(null);
 
@@ -521,6 +540,18 @@ What is the capital of India?,Mumbai,Delhi,Kolkata,Chennai,B,https://example.com
 
   // ✅ Handle CSV Import with Confirmation
   const handleCSVImport = async (event) => {
+    // Check permission
+    if (!canImport) {
+      showErrorRef.current(
+        "Only administrators and super moderators can import data"
+      );
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+      return;
+    }
+    
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -745,7 +776,8 @@ What is the capital of India?,Mumbai,Delhi,Kolkata,Chennai,B,https://example.com
               </p>
             </div>
             <div className="flex items-center gap-3">
-              {canCreate && (
+              {/* Import/Export buttons - Only for admin and super_moderator */}
+              {canImport && (
                 <>
                   <button
                     onClick={() => {
@@ -769,6 +801,26 @@ What is the capital of India?,Mumbai,Delhi,Kolkata,Chennai,B,https://example.com
                     title="Import from CSV"
                   >
                     <FaUpload className="w-4 h-4" />
+                    <span className="hidden sm:inline">Import CSV</span>
+                  </button>
+                </>
+              )}
+              {!canImport && (
+                <>
+                  <button
+                    disabled
+                    title="Only administrators and super moderators can download CSV templates"
+                    className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm font-medium cursor-not-allowed flex items-center gap-2"
+                  >
+                    <FaLock className="w-4 h-4" />
+                    <span className="hidden sm:inline">Download Template</span>
+                  </button>
+                  <button
+                    disabled
+                    title="Only administrators and super moderators can import data"
+                    className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm font-medium cursor-not-allowed flex items-center gap-2"
+                  >
+                    <FaLock className="w-4 h-4" />
                     <span className="hidden sm:inline">Import CSV</span>
                   </button>
                 </>

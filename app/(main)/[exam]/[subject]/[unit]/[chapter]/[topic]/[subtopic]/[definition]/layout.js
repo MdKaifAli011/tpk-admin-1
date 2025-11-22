@@ -35,7 +35,7 @@ export async function generateMetadata({ params }) {
         fetchDefinitionById,
         fetchDefinitionDetailsById,
         findByIdOrSlug,
-      } = await import("../../../../../../lib/api");
+      } = await import("../../../../../../../lib/api");
 
       const examData = await fetchExamById(exam).catch(() => null);
       if (!examData) {

@@ -33,7 +33,7 @@ const ALL_MENU_ITEMS = [
     name: "Practice Test Management",
     href: "/admin/practice",
     icon: FaRegFolderOpen,
-    adminOnly: true,
+
   },
   {
     name: "User Role Management",

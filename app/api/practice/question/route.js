@@ -10,6 +10,7 @@ import {
   handleApiError,
 } from "@/utils/apiResponse";
 import { STATUS, ERROR_MESSAGES } from "@/constants";
+import { requireAuth } from "@/middleware/authMiddleware";
 
 // Cache for frequently accessed queries
 export const queryCache = new Map();
@@ -105,6 +106,23 @@ export async function GET(request) {
 // ---------- CREATE PRACTICE QUESTION ----------
 export async function POST(request) {
   try {
+    // Check authentication - all authenticated users with create permission can create questions
+    // Import functionality is protected at the frontend level (only admin/super_moderator can access import UI)
+    const authCheck = await requireAuth(request);
+    if (authCheck.error) {
+      return NextResponse.json(authCheck, { status: authCheck.status || 401 });
+    }
+
+    // Check if user has permission to create (moderator, super_moderator, admin)
+    const userRole = authCheck.role;
+    const allowedRoles = ["admin", "super_moderator", "moderator"];
+    if (!allowedRoles.includes(userRole)) {
+      return errorResponse(
+        "You don't have permission to create practice questions",
+        403
+      );
+    }
+
     await connectDB();
     const body = await request.json();
     const {
