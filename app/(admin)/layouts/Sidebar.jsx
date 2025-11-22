@@ -36,6 +36,11 @@ const ALL_MENU_ITEMS = [
 
   },
   {
+    name: "Lead Management",
+    href: "/admin/lead",
+    icon: FaUserTag,
+  },
+  {
     name: "User Role Management",
     href: "/admin/user-role",
     icon: FaUserTag,

@@ -165,7 +165,7 @@ const Navbar = ({ onMenuToggle, isMenuOpen }) => {
 
               {/* Enroll Now Button */}
               <Link
-                href="#"
+                href="/contact"
                 className="px-2.5 sm:px-3 md:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs md:text-sm font-semibold text-white bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg hover:from-purple-700 hover:to-blue-700 active:from-purple-800 active:to-blue-800 transition-all shadow-md hover:shadow-lg whitespace-nowrap touch-manipulation"
               >
                 <span className="hidden sm:inline">Enroll Now</span>
