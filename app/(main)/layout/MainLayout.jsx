@@ -39,13 +39,7 @@ const MainLayout = ({ children }) => {
           {/* SIDEBAR (Premium 300px Glass UI) */}
           <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} />
 
-          {/* OVERLAY (Mobile only) */}
-          {isSidebarOpen && (
-            <div
-              className="fixed inset-0 z-30 bg-black/30 backdrop-blur-[1px] lg:hidden"
-              onClick={closeSidebar}
-            />
-          )}
+          {/* OVERLAY (Mobile only) - Removed duplicate, handled in Sidebar */}
 
           {/* MAIN CONTENT */}
           <main

@@ -395,15 +395,15 @@ export default function Sidebar({ isOpen = true, onClose }) {
 
   // render helpers
   const renderLoading = () => (
-    <div className="px-3 py-4 space-y-2">
+    <div className="px-2.5 sm:px-3 py-3 sm:py-4 space-y-2">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="h-3 rounded-md bg-gray-200/70 animate-pulse" />
+        <div key={i} className="h-3 sm:h-3.5 rounded-md bg-gray-200/70 animate-pulse" />
       ))}
     </div>
   );
 
   const renderEmpty = () => (
-    <div className="px-3 py-4 text-sm text-gray-600 text-center">
+    <div className="px-2.5 sm:px-3 py-3 sm:py-4 text-xs sm:text-sm text-gray-600 text-center">
       {activeExam
         ? "No navigation data available for this exam."
         : "Select an exam to view its content."}
@@ -441,34 +441,35 @@ export default function Sidebar({ isOpen = true, onClose }) {
       {/* Mobile open button */}
       {!sidebarOpen && (
         <button
-          className="fixed top-[74px] md:top-[106px] left-4 z-50 lg:hidden bg-blue-600 text-white p-2 rounded-md shadow-sm hover:bg-blue-700 transition-colors"
+          className="fixed top-[70px] sm:top-[74px] md:top-[106px] left-3 sm:left-4 z-[60] lg:hidden bg-blue-600 text-white p-2.5 sm:p-3 rounded-lg shadow-lg hover:bg-blue-700 active:bg-blue-800 transition-all touch-manipulation"
           onClick={openSidebarMobile}
           aria-label="Open sidebar"
         >
-          <FaBars size={16} />
+          <FaBars size={18} className="sm:w-5 sm:h-5" />
         </button>
       )}
 
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/30 lg:hidden"
+          className="fixed inset-0 z-[35] bg-black/40 backdrop-blur-[2px] lg:hidden transition-opacity"
           onClick={closeSidebarMobile}
+          aria-hidden="true"
         />
       )}
 
-      {/* Sidebar - Premium Compact 300px */}
+      {/* Sidebar - Premium Compact 300px (280px on mobile) */}
       <aside
-        className={`fixed left-0 z-40 w-[300px] min-w-[300px] max-w-[300px] bg-white/95 backdrop-blur-sm border-r border-gray-100 transform transition-transform duration-200 ease-out ${
+        className={`fixed left-0 z-[40] w-[280px] sm:w-[300px] min-w-[280px] sm:min-w-[300px] max-w-[280px] sm:max-w-[300px] bg-white/98 backdrop-blur-md border-r border-gray-200 transform transition-transform duration-300 ease-out ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        } lg:flex lg:flex-col top-[70px] md:top-[102px] h-[calc(100vh-70px)] md:h-[calc(100vh-102px)]`}
+        } lg:flex lg:flex-col top-[70px] sm:top-[74px] md:top-[102px] h-[calc(100vh-70px)] sm:h-[calc(100vh-74px)] md:h-[calc(100vh-102px)]`}
         role="complementary"
         aria-label="Exam navigation sidebar"
-        style={{ boxShadow: "0 6px 18px rgba(15, 23, 42, 0.06)" }}
+        style={{ boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)" }}
       >
-        <div className="flex h-full flex-col overflow-y-auto overflow-x-hidden p-3 min-h-0 min-w-[300px] max-w-[300px] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        <div className="flex h-full flex-col overflow-y-auto overflow-x-hidden p-2.5 sm:p-3 min-h-0 min-w-[280px] sm:min-w-[300px] max-w-[280px] sm:max-w-[300px] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
           {/* Exam dropdown */}
-          <div className="mb-3">
+          <div className="mb-2.5 sm:mb-3">
             <ExamDropdown
               exams={exams}
               activeExamId={activeExamId}
@@ -476,22 +477,23 @@ export default function Sidebar({ isOpen = true, onClose }) {
                 setActiveExamId(exam._id);
                 const slug = exam.slug || createSlug(exam.name);
                 router.push(`/${slug}`);
+                closeOnMobile();
               }}
             />
           </div>
 
           {/* Search */}
           {tree.length > 0 && (
-            <div className="mb-3">
+            <div className="mb-2.5 sm:mb-3">
               <div className="relative">
-                <FaSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs" />
+                <FaSearch className="pointer-events-none absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs sm:text-sm" />
                 <input
                   type="search"
                   aria-label="Search subjects, units, chapters, and topics"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search..."
-                  className="w-full rounded-md border border-gray-200 bg-white px-8 py-1.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-400/80 transition"
+                  className="w-full rounded-lg border border-gray-200 bg-white px-7 sm:px-8 py-2 sm:py-2.5 text-sm sm:text-base text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/60 focus:border-blue-400 transition-all touch-manipulation"
                 />
               </div>
             </div>
@@ -502,7 +504,7 @@ export default function Sidebar({ isOpen = true, onClose }) {
             {treeLoading && renderLoading()}
 
             {!treeLoading && error && (
-              <div className="px-3 py-4 text-sm text-red-600 font-medium">
+              <div className="px-2.5 sm:px-3 py-3 sm:py-4 text-xs sm:text-sm text-red-600 font-medium">
                 {error}
               </div>
             )}
