@@ -8,6 +8,19 @@ const SubjectTable = ({ subjects, onEdit, onDelete, onToggleStatus }) => {
   const { canEdit, canDelete, canReorder, role } = usePermissions();
   const router = useRouter();
 
+  // Helper function to format content date
+  const formatContentDate = (contentInfo) => {
+    if (!contentInfo || !contentInfo.hasContent || !contentInfo.contentDate) {
+      return "unavailable";
+    }
+    const date = new Date(contentInfo.contentDate);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
   const handleSubjectClick = (subject) => {
     router.push(`/admin/subject/${subject._id}`);
   };
@@ -82,6 +95,9 @@ const SubjectTable = ({ subjects, onEdit, onDelete, onToggleStatus }) => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Subject Name
                   </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Content
+                  </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
@@ -107,6 +123,15 @@ const SubjectTable = ({ subjects, onEdit, onDelete, onToggleStatus }) => {
                       title={subject.name}
                     >
                       {subject.name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`text-sm ${
+                        subject.contentInfo?.hasContent 
+                          ? "text-gray-700" 
+                          : "text-gray-400 italic"
+                      }`}>
+                        {formatContentDate(subject.contentInfo)}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -224,13 +249,20 @@ const SubjectTable = ({ subjects, onEdit, onDelete, onToggleStatus }) => {
                     >
                       {subject.name}
                     </h3>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                         subject.status === "active" 
                           ? "bg-green-100 text-green-800" 
                           : "bg-red-100 text-red-800"
                       }`}>
                         {subject.status === "active" ? "Active" : "Inactive"}
+                      </span>
+                      <span className={`text-xs ${
+                        subject.contentInfo?.hasContent 
+                          ? "text-gray-600" 
+                          : "text-gray-400 italic"
+                      }`}>
+                        Content: {formatContentDate(subject.contentInfo)}
                       </span>
                     </div>
                   </div>

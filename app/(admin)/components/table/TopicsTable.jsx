@@ -17,6 +17,19 @@ const TopicsTable = ({
   const { canEdit, canDelete, canReorder, role } = usePermissions();
   const router = useRouter();
 
+  // Helper function to format content date
+  const formatContentDate = (contentInfo) => {
+    if (!contentInfo || !contentInfo.hasContent || !contentInfo.contentDate) {
+      return "unavailable";
+    }
+    const date = new Date(contentInfo.contentDate);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
   const handleTopicClick = (topicId) => {
     router.push(`/admin/topic/${topicId}`);
   };
@@ -151,6 +164,9 @@ const TopicsTable = ({
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Topic Name
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Content
+                    </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -181,6 +197,15 @@ const TopicsTable = ({
                             title={topic.name}
                           >
                             {topic.name}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`text-sm ${
+                            topic.contentInfo?.hasContent 
+                              ? "text-gray-700" 
+                              : "text-gray-400 italic"
+                          }`}>
+                            {formatContentDate(topic.contentInfo)}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">
@@ -295,9 +320,18 @@ const TopicsTable = ({
                         >
                           {topic.name}
                         </h3>
-                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-medium text-xs">
-                          #{topic.orderNumber || topicIndex + 1}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-medium text-xs">
+                            #{topic.orderNumber || topicIndex + 1}
+                          </span>
+                          <span className={`text-xs ${
+                            topic.contentInfo?.hasContent 
+                              ? "text-gray-600" 
+                              : "text-gray-400 italic"
+                          }`}>
+                            Content: {formatContentDate(topic.contentInfo)}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <button

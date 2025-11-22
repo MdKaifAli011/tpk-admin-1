@@ -77,7 +77,38 @@ export async function GET(request) {
         .exec(),
     ]);
 
-    const response = createPaginationResponse(subjects, total, page, limit);
+    // Fetch content information from SubjectDetails
+    const subjectIds = subjects.map((subject) => subject._id);
+    const SubjectDetails = (await import("@/models/SubjectDetails")).default;
+    const subjectDetails = await SubjectDetails.find({
+      subjectId: { $in: subjectIds },
+    })
+      .select("subjectId content createdAt updatedAt")
+      .lean();
+
+    // Create a map of subjectId to content info
+    const contentMap = new Map();
+    subjectDetails.forEach((detail) => {
+      const hasContent = detail.content && detail.content.trim() !== "";
+      contentMap.set(detail.subjectId.toString(), {
+        hasContent,
+        contentDate: hasContent ? (detail.updatedAt || detail.createdAt) : null,
+      });
+    });
+
+    // Add content info to each subject
+    const subjectsWithContent = subjects.map((subject) => {
+      const contentInfo = contentMap.get(subject._id.toString()) || {
+        hasContent: false,
+        contentDate: null,
+      };
+      return {
+        ...subject,
+        contentInfo,
+      };
+    });
+
+    const response = createPaginationResponse(subjectsWithContent, total, page, limit);
 
     // Cache the response (only for active status)
     if (statusFilter === STATUS.ACTIVE) {

@@ -106,10 +106,41 @@ export async function GET(request) {
       return true;
     });
 
+    // Fetch content information from ExamDetails
+    const examIds = validExams.map((exam) => exam._id);
+    const ExamDetails = (await import("@/models/ExamDetails")).default;
+    const examDetails = await ExamDetails.find({
+      examId: { $in: examIds },
+    })
+      .select("examId content createdAt updatedAt")
+      .lean();
+
+    // Create a map of examId to content info
+    const contentMap = new Map();
+    examDetails.forEach((detail) => {
+      const hasContent = detail.content && detail.content.trim() !== "";
+      contentMap.set(detail.examId.toString(), {
+        hasContent,
+        contentDate: hasContent ? (detail.updatedAt || detail.createdAt) : null,
+      });
+    });
+
+    // Add content info to each exam
+    const examsWithContent = validExams.map((exam) => {
+      const contentInfo = contentMap.get(exam._id.toString()) || {
+        hasContent: false,
+        contentDate: null,
+      };
+      return {
+        ...exam,
+        contentInfo,
+      };
+    });
+
     // Update total count based on valid exams if needed
     const actualTotal = shouldCount ? total : validExams.length;
     const response = createPaginationResponse(
-      validExams,
+      examsWithContent,
       actualTotal,
       page,
       limit

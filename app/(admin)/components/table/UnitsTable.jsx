@@ -12,6 +12,19 @@ const UnitsTable = ({ units, onEdit, onDelete, onDragEnd, onToggleStatus }) => {
   const { canEdit, canDelete, canReorder, role } = usePermissions();
   const router = useRouter();
 
+  // Helper function to format content date
+  const formatContentDate = (contentInfo) => {
+    if (!contentInfo || !contentInfo.hasContent || !contentInfo.contentDate) {
+      return "unavailable";
+    }
+    const date = new Date(contentInfo.contentDate);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
   const handleUnitClick = (unit) => {
     router.push(`/admin/unit/${unit._id}`);
   };
@@ -120,6 +133,9 @@ const UnitsTable = ({ units, onEdit, onDelete, onDragEnd, onToggleStatus }) => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Unit Name
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Content
+                    </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -150,6 +166,15 @@ const UnitsTable = ({ units, onEdit, onDelete, onDragEnd, onToggleStatus }) => {
                             title={unit.name}
                           >
                             {unit.name}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`text-sm ${
+                            unit.contentInfo?.hasContent 
+                              ? "text-gray-700" 
+                              : "text-gray-400 italic"
+                          }`}>
+                            {formatContentDate(unit.contentInfo)}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">
@@ -262,9 +287,18 @@ const UnitsTable = ({ units, onEdit, onDelete, onDragEnd, onToggleStatus }) => {
                         >
                           {unit.name}
                         </h3>
-                        <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-medium text-xs">
-                          #{unit.orderNumber || unitIndex + 1}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-medium text-xs">
+                            #{unit.orderNumber || unitIndex + 1}
+                          </span>
+                          <span className={`text-xs ${
+                            unit.contentInfo?.hasContent 
+                              ? "text-gray-600" 
+                              : "text-gray-400 italic"
+                          }`}>
+                            Content: {formatContentDate(unit.contentInfo)}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <button

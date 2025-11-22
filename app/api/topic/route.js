@@ -57,8 +57,39 @@ export async function GET(request) {
       .limit(limit)
       .lean();
 
+    // Fetch content information from TopicDetails
+    const topicIds = topics.map((topic) => topic._id);
+    const TopicDetails = (await import("@/models/TopicDetails")).default;
+    const topicDetails = await TopicDetails.find({
+      topicId: { $in: topicIds },
+    })
+      .select("topicId content createdAt updatedAt")
+      .lean();
+
+    // Create a map of topicId to content info
+    const contentMap = new Map();
+    topicDetails.forEach((detail) => {
+      const hasContent = detail.content && detail.content.trim() !== "";
+      contentMap.set(detail.topicId.toString(), {
+        hasContent,
+        contentDate: hasContent ? (detail.updatedAt || detail.createdAt) : null,
+      });
+    });
+
+    // Add content info to each topic
+    const topicsWithContent = topics.map((topic) => {
+      const contentInfo = contentMap.get(topic._id.toString()) || {
+        hasContent: false,
+        contentDate: null,
+      };
+      return {
+        ...topic,
+        contentInfo,
+      };
+    });
+
     return NextResponse.json(
-      createPaginationResponse(topics, total, page, limit)
+      createPaginationResponse(topicsWithContent, total, page, limit)
     );
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.FETCH_FAILED);

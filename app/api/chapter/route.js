@@ -53,8 +53,39 @@ export async function GET(request) {
       .limit(limit)
       .lean();
 
+    // Fetch content information from ChapterDetails
+    const chapterIds = chapters.map((chapter) => chapter._id);
+    const ChapterDetails = (await import("@/models/ChapterDetails")).default;
+    const chapterDetails = await ChapterDetails.find({
+      chapterId: { $in: chapterIds },
+    })
+      .select("chapterId content createdAt updatedAt")
+      .lean();
+
+    // Create a map of chapterId to content info
+    const contentMap = new Map();
+    chapterDetails.forEach((detail) => {
+      const hasContent = detail.content && detail.content.trim() !== "";
+      contentMap.set(detail.chapterId.toString(), {
+        hasContent,
+        contentDate: hasContent ? (detail.updatedAt || detail.createdAt) : null,
+      });
+    });
+
+    // Add content info to each chapter
+    const chaptersWithContent = chapters.map((chapter) => {
+      const contentInfo = contentMap.get(chapter._id.toString()) || {
+        hasContent: false,
+        contentDate: null,
+      };
+      return {
+        ...chapter,
+        contentInfo,
+      };
+    });
+
     return NextResponse.json(
-      createPaginationResponse(chapters, total, page, limit)
+      createPaginationResponse(chaptersWithContent, total, page, limit)
     );
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.FETCH_FAILED);

@@ -84,7 +84,38 @@ export async function GET(request) {
         .exec()
     ]);
 
-    const response = createPaginationResponse(units, total, page, limit);
+    // Fetch content information from UnitDetails
+    const unitIds = units.map((unit) => unit._id);
+    const UnitDetails = (await import("@/models/UnitDetails")).default;
+    const unitDetails = await UnitDetails.find({
+      unitId: { $in: unitIds },
+    })
+      .select("unitId content createdAt updatedAt")
+      .lean();
+
+    // Create a map of unitId to content info
+    const contentMap = new Map();
+    unitDetails.forEach((detail) => {
+      const hasContent = detail.content && detail.content.trim() !== "";
+      contentMap.set(detail.unitId.toString(), {
+        hasContent,
+        contentDate: hasContent ? (detail.updatedAt || detail.createdAt) : null,
+      });
+    });
+
+    // Add content info to each unit
+    const unitsWithContent = units.map((unit) => {
+      const contentInfo = contentMap.get(unit._id.toString()) || {
+        hasContent: false,
+        contentDate: null,
+      };
+      return {
+        ...unit,
+        contentInfo,
+      };
+    });
+
+    const response = createPaginationResponse(unitsWithContent, total, page, limit);
 
     // Cache the response (only for active status)
     if (statusFilter === STATUS.ACTIVE) {

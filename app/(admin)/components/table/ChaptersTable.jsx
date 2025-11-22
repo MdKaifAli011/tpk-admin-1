@@ -17,6 +17,19 @@ const ChaptersTable = ({
   const { canEdit, canDelete, canReorder, role } = usePermissions();
   const router = useRouter();
 
+  // Helper function to format content date
+  const formatContentDate = (contentInfo) => {
+    if (!contentInfo || !contentInfo.hasContent || !contentInfo.contentDate) {
+      return "unavailable";
+    }
+    const date = new Date(contentInfo.contentDate);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
   const handleChapterClick = (chapterId) => {
     router.push(`/admin/chapter/${chapterId}`);
   };
@@ -147,6 +160,9 @@ const ChaptersTable = ({
                     <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Questions
                     </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Content
+                    </th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Actions
                     </th>
@@ -207,6 +223,15 @@ const ChaptersTable = ({
                           ) : (
                             <span className="text-sm text-gray-400">—</span>
                           )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`text-sm ${
+                            chapter.contentInfo?.hasContent 
+                              ? "text-gray-700" 
+                              : "text-gray-400 italic"
+                          }`}>
+                            {formatContentDate(chapter.contentInfo)}
+                          </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right">
                           <div className="flex items-center justify-end gap-2">
@@ -325,6 +350,13 @@ const ChaptersTable = ({
                               {chapter.questions}Q
                             </span>
                           )}
+                          <span className={`text-xs ${
+                            chapter.contentInfo?.hasContent 
+                              ? "text-gray-600" 
+                              : "text-gray-400 italic"
+                          }`}>
+                            Content: {formatContentDate(chapter.contentInfo)}
+                          </span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">

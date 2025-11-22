@@ -82,8 +82,39 @@ export async function GET(request) {
       return def;
     });
 
+    // Fetch content information from DefinitionDetails
+    const definitionIds = definitions.map((def) => def._id);
+    const DefinitionDetails = (await import("@/models/DefinitionDetails")).default;
+    const definitionDetails = await DefinitionDetails.find({
+      definitionId: { $in: definitionIds },
+    })
+      .select("definitionId content createdAt updatedAt")
+      .lean();
+
+    // Create a map of definitionId to content info
+    const contentMap = new Map();
+    definitionDetails.forEach((detail) => {
+      const hasContent = detail.content && detail.content.trim() !== "";
+      contentMap.set(detail.definitionId.toString(), {
+        hasContent,
+        contentDate: hasContent ? (detail.updatedAt || detail.createdAt) : null,
+      });
+    });
+
+    // Add content info to each definition
+    const definitionsWithContent = definitions.map((def) => {
+      const contentInfo = contentMap.get(def._id.toString()) || {
+        hasContent: false,
+        contentDate: null,
+      };
+      return {
+        ...def,
+        contentInfo,
+      };
+    });
+
     return NextResponse.json(
-      createPaginationResponse(definitions, total, page, limit)
+      createPaginationResponse(definitionsWithContent, total, page, limit)
     );
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.FETCH_FAILED);

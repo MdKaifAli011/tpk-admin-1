@@ -52,8 +52,39 @@ export async function GET(request) {
       .limit(limit)
       .lean();
 
+    // Fetch content information from SubTopicDetails
+    const subTopicIds = subTopics.map((subTopic) => subTopic._id);
+    const SubTopicDetails = (await import("@/models/SubTopicDetails")).default;
+    const subTopicDetails = await SubTopicDetails.find({
+      subTopicId: { $in: subTopicIds },
+    })
+      .select("subTopicId content createdAt updatedAt")
+      .lean();
+
+    // Create a map of subTopicId to content info
+    const contentMap = new Map();
+    subTopicDetails.forEach((detail) => {
+      const hasContent = detail.content && detail.content.trim() !== "";
+      contentMap.set(detail.subTopicId.toString(), {
+        hasContent,
+        contentDate: hasContent ? (detail.updatedAt || detail.createdAt) : null,
+      });
+    });
+
+    // Add content info to each subtopic
+    const subTopicsWithContent = subTopics.map((subTopic) => {
+      const contentInfo = contentMap.get(subTopic._id.toString()) || {
+        hasContent: false,
+        contentDate: null,
+      };
+      return {
+        ...subTopic,
+        contentInfo,
+      };
+    });
+
     return NextResponse.json(
-      createPaginationResponse(subTopics, total, page, limit)
+      createPaginationResponse(subTopicsWithContent, total, page, limit)
     );
   } catch (error) {
     return handleApiError(error, ERROR_MESSAGES.FETCH_FAILED);

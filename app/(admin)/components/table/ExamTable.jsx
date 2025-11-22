@@ -15,6 +15,19 @@ const ExamTable = ({ exams, onEdit, onDelete, onView, onToggleStatus }) => {
   const { canEdit, canDelete, canReorder, role } = usePermissions();
   const router = useRouter();
 
+  // Helper function to format content date
+  const formatContentDate = (contentInfo) => {
+    if (!contentInfo || !contentInfo.hasContent || !contentInfo.contentDate) {
+      return "unavailable";
+    }
+    const date = new Date(contentInfo.contentDate);
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
+
   const handleExamClick = (exam) => {
     router.push(`/admin/exam/${exam._id}`);
   };
@@ -48,6 +61,9 @@ const ExamTable = ({ exams, onEdit, onDelete, onView, onToggleStatus }) => {
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Exam Details
+              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Content
               </th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Actions
@@ -89,6 +105,15 @@ const ExamTable = ({ exams, onEdit, onDelete, onView, onToggleStatus }) => {
                         (exam.status || "active").slice(1)}
                     </span>
                   </div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <span className={`text-sm ${
+                    exam.contentInfo?.hasContent 
+                      ? "text-gray-700" 
+                      : "text-gray-400 italic"
+                  }`}>
+                    {formatContentDate(exam.contentInfo)}
+                  </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right">
                   <div className="flex items-center justify-end gap-2">
@@ -189,7 +214,7 @@ const ExamTable = ({ exams, onEdit, onDelete, onView, onToggleStatus }) => {
                 >
                   {exam.name}
                 </h3>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                       exam.status === "active"
@@ -203,6 +228,13 @@ const ExamTable = ({ exams, onEdit, onDelete, onView, onToggleStatus }) => {
                   >
                     {(exam.status || "active").charAt(0).toUpperCase() +
                       (exam.status || "active").slice(1)}
+                  </span>
+                  <span className={`text-xs ${
+                    exam.contentInfo?.hasContent 
+                      ? "text-gray-600" 
+                      : "text-gray-400 italic"
+                  }`}>
+                    Content: {formatContentDate(exam.contentInfo)}
                   </span>
                 </div>
               </div>
